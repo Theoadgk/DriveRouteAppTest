@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Cardiff Routes">
+<meta name="theme-color" content="#0f1117">
+<title>Cardiff Test Routes</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap');
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#0f1117;--surf:#181c25;--surf2:#1f2330;
+  --border:rgba(255,255,255,0.08);
+  --accent:#4ade80;--accent2:#60a5fa;--accent3:#f59e0b;--red:#f87171;--purple:#a78bfa;
+  --muted:rgba(255,255,255,0.45);--text:#f0f2f5;
+  --font:'DM Sans',sans-serif;--mono:'DM Mono',monospace;--r:12px;
+  --safe-top:env(safe-area-inset-top,0px);--safe-bot:env(safe-area-inset-bottom,0px);
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--font)}
+#shell{display:flex;flex-direction:column;height:100%;padding-top:var(--safe-top)}
+#header{padding:10px 16px 8px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;background:var(--bg);z-index:100}
+#header-title{font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);font-family:var(--mono)}
+#header-sub{font-size:11px;color:var(--muted);margin-top:1px}
+#gps-status{display:flex;align-items:center;gap:6px}
+#gps-dot{width:9px;height:9px;border-radius:50%;background:#6b7280;flex-shrink:0;transition:background .3s}
+#gps-dot.on{background:var(--accent);box-shadow:0 0 8px var(--accent)}
+#gps-dot.searching{background:var(--accent3);animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+#gps-label{font-size:11px;color:var(--muted);font-family:var(--mono)}
+#tabs{display:flex;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--bg)}
+.tab{flex:1;padding:11px 4px;font-size:11px;font-weight:500;text-align:center;cursor:pointer;color:var(--muted);border:none;background:none;font-family:var(--font);border-bottom:2px solid transparent;transition:color .15s,border-color .15s}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+#panels{flex:1;overflow:hidden;position:relative}
+.panel{position:absolute;inset:0;overflow-y:auto;display:none;-webkit-overflow-scrolling:touch}
+.panel.active{display:block}
+#panel-map{display:none;flex-direction:column}
+#panel-map.active{display:flex!important}
+
+/* ROUTES */
+.filters{padding:12px 14px;border-bottom:1px solid var(--border)}
+.f-label{font-size:11px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:7px}
+.chip-row{display:flex;flex-wrap:wrap;gap:6px}
+.chip{padding:5px 11px;border-radius:20px;border:1px solid var(--border);font-size:11px;font-weight:500;cursor:pointer;background:var(--surf);color:var(--muted);font-family:var(--font);transition:all .15s}
+.chip.on{background:var(--accent);color:#051205;border-color:var(--accent)}
+.chip.warn.on{background:var(--accent3);color:#1a0f00;border-color:var(--accent3)}
+.chip.info.on{background:var(--accent2);color:#001528;border-color:var(--accent2)}
+.route-list{padding:10px 14px;display:flex;flex-direction:column;gap:8px;padding-bottom:90px}
+.rcard{background:var(--surf);border:1px solid var(--border);border-radius:var(--r);padding:12px 14px;cursor:pointer;transition:border-color .15s}
+.rcard.sel{border-color:var(--accent);background:rgba(74,222,128,.06)}
+.rname{font-size:13px;font-weight:600}
+.rcenter{font-size:10px;color:var(--muted);margin-top:2px;font-family:var(--mono)}
+.rbadges{display:flex;gap:4px;flex-wrap:wrap;margin:7px 0 5px}
+.badge{font-size:10px;padding:3px 7px;border-radius:20px;font-weight:500;font-family:var(--mono)}
+.bg{background:rgba(74,222,128,.15);color:var(--accent)}
+.ba{background:rgba(245,158,11,.15);color:var(--accent3)}
+.bb{background:rgba(96,165,250,.15);color:var(--accent2)}
+.br{background:rgba(248,113,113,.15);color:var(--red)}
+.rpreview{font-size:11px;color:var(--muted);line-height:1.5}
+.start-btn{position:fixed;bottom:0;left:0;right:0;background:var(--accent);color:#051205;border:none;padding:16px;font-size:14px;font-weight:700;cursor:pointer;font-family:var(--font);padding-bottom:calc(16px + var(--safe-bot));z-index:200;transition:opacity .15s}
+.start-btn:disabled{opacity:.3;cursor:default}
+
+/* MAP */
+#leaflet-map{flex:1;min-height:0;z-index:1}
+#map-bottom{flex-shrink:0;background:var(--bg);border-top:1px solid var(--border);padding:8px 14px;padding-bottom:calc(8px + var(--safe-bot))}
+#map-route-name{font-size:12px;font-weight:600;margin-bottom:4px}
+#map-legend{display:flex;gap:10px;flex-wrap:wrap}
+.leg-item{font-size:10px;color:var(--muted);display:flex;align-items:center;gap:4px}
+.leg-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+#loading-overlay{position:absolute;inset:0;background:rgba(15,17,23,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:999;gap:12px}
+#loading-overlay.hide{display:none}
+.spinner{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#loading-text{font-size:13px;color:var(--muted);font-family:var(--mono)}
+
+/* NAV */
+.nav-missed{background:var(--red);color:white;text-align:center;padding:10px 14px;font-size:13px;font-weight:600;display:none}
+.nav-missed.show{display:block}
+.nav-hdr{padding:10px 14px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border);background:var(--bg);position:sticky;top:0;z-index:10}
+.nav-step-lbl{font-family:var(--mono);font-size:11px;color:var(--muted);white-space:nowrap}
+.prog-bar{flex:1;height:4px;background:var(--border);border-radius:2px;overflow:hidden}
+.prog-fill{height:100%;background:var(--accent);border-radius:2px;transition:width .4s}
+.nav-curr{margin:12px 14px;background:var(--surf);border:2px solid rgba(74,222,128,.4);border-radius:var(--r);padding:16px}
+.nav-street-label{font-size:11px;color:var(--muted);font-family:var(--mono);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+.nav-street{font-size:26px;font-weight:700;line-height:1.15;color:var(--text)}
+.nav-inst{font-size:19px;color:var(--accent);margin-top:10px;font-weight:600;display:flex;align-items:center;gap:10px;line-height:1.2}
+.nav-inst-icon{font-size:30px;line-height:1;flex-shrink:0}
+.nav-dist{font-size:12px;color:var(--muted);margin-top:8px;font-family:var(--mono)}
+.up-label{padding:0 14px 6px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:500}
+.up-list{padding:0 14px;display:flex;flex-direction:column;gap:4px}
+.up-item{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--surf);border-radius:8px;border:1px solid var(--border)}
+.up-num{font-family:var(--mono);font-size:10px;color:var(--muted);width:18px;text-align:center}
+.up-street{font-size:13px;font-weight:600}
+.up-inst{font-size:11px;color:var(--muted)}
+.nav-ctrls{display:flex;gap:8px;padding:14px;padding-bottom:calc(14px + var(--safe-bot))}
+.nbtn{flex:1;padding:14px 8px;border-radius:var(--r);border:1px solid var(--border);background:var(--surf);color:var(--text);font-size:14px;font-weight:600;cursor:pointer;font-family:var(--font);transition:all .15s}
+.nbtn:active{background:var(--surf2)}
+.nbtn.primary{background:var(--accent);color:#051205;border-color:var(--accent)}
+.nbtn:disabled{opacity:.3;pointer-events:none}
+.empty{padding:32px 20px;text-align:center;color:var(--muted);font-size:13px;line-height:1.7}
+.leaflet-container{background:#1a1e2a}
+.leaflet-tile{filter:brightness(.75) saturate(.6)}
+</style>
+</head>
+<body>
+<div id="shell">
+  <div id="header">
+    <div>
+      <div id="header-title">Cardiff Test Routes</div>
+      <div id="header-sub">Llanishen DVSA — 14 Routes</div>
+    </div>
+    <div id="gps-status">
+      <span id="gps-label">GPS off</span>
+      <div id="gps-dot"></div>
+    </div>
+  </div>
+  <div id="tabs">
+    <button class="tab active" id="tab-routes" onclick="showTab('routes')">📋 Routes</button>
+    <button class="tab" id="tab-map" onclick="showTab('map')">🗺 Map</button>
+    <button class="tab" id="tab-nav" onclick="showTab('nav')">🧭 Navigate</button>
+  </div>
+  <div id="panels">
+    <div class="panel active" id="panel-routes">
+      <div class="filters">
+        <div class="f-label">Include road types</div>
+        <div class="chip-row">
+          <button class="chip on" data-type="residential" onclick="toggleType(this)">🏠 Residential</button>
+          <button class="chip on" data-type="roundabout" onclick="toggleType(this)">🔄 Roundabouts</button>
+          <button class="chip on" data-type="trafficlight" onclick="toggleType(this)">🚦 Lights</button>
+          <button class="chip warn on" data-type="dual" onclick="toggleType(this)">🛣 Dual C'way</button>
+          <button class="chip info on" data-type="main" onclick="toggleType(this)">🚗 Main Roads</button>
+        </div>
+        <div class="f-label" style="margin-top:10px">Sort by</div>
+        <div class="chip-row">
+          <button class="chip on" data-sort="roundabouts" onclick="setSort(this)">Most roundabouts</button>
+          <button class="chip" data-sort="lights" onclick="setSort(this)">Most lights</button>
+          <button class="chip" data-sort="steps" onclick="setSort(this)">Longest</button>
+        </div>
+      </div>
+      <div class="route-list" id="route-list"></div>
+      <button class="start-btn" id="start-btn" disabled onclick="beginNav()">Select a route to navigate</button>
+    </div>
+    <div class="panel" id="panel-map">
+      <div id="loading-overlay" class="hide">
+        <div class="spinner"></div>
+        <div id="loading-text">Fetching road route…</div>
+      </div>
+      <div id="leaflet-map"></div>
+      <div id="map-bottom">
+        <div id="map-route-name" style="color:var(--muted)">No route selected</div>
+        <div id="map-legend">
+          <div class="leg-item"><div class="leg-dot" style="background:var(--accent)"></div>Start/End</div>
+          <div class="leg-item"><div class="leg-dot" style="background:var(--accent2)"></div>Roundabout</div>
+          <div class="leg-item"><div class="leg-dot" style="background:var(--accent3)"></div>Lights</div>
+          <div class="leg-item"><div class="leg-dot" style="background:var(--red)"></div>Dual c'way</div>
+          <div class="leg-item"><div class="leg-dot" style="background:#fff;opacity:.5"></div>You</div>
+        </div>
+      </div>
+    </div>
+    <div class="panel" id="panel-nav">
+      <div id="nav-content"><div class="empty">Select a route from the Routes tab, then tap Navigate.</div></div>
+    </div>
+  </div>
+</div>
+<script>
+const GEOAPIFY_KEY='8f31f471756b4049b945b463e8147c30';
+const ADVANCE_DIST=35;
+const MISSED_DIST=80;
+
+// All 14 routes with accurate Cardiff GPS coordinates
+// DTC = Norbury Road, Llanishen, Cardiff CF14 1SL (51.52027, -3.20560)
+const DTC={lat:51.52027,lng:-3.20560};
+
+const ROUTES=[
+{id:1,name:"Route 1 — Fairwater Loop",center:"Fairwater / Llantrisant Rd",
+ tags:{residential:true,roundabout:true,trafficlight:true,dual:false,main:true},
+ roundabouts:3,lights:2,
+ steps:[
+  {street:"Test Centre",inst:"Depart — EOR left onto Norbury Rd",type:"residential",lat:51.52027,lng:-3.20560},
+  {street:"Norbury Rd",inst:"EOR left",type:"residential",lat:51.51980,lng:-3.20620},
+  {street:"St Fagans Rd",inst:"Traffic lights → right",type:"trafficlight",lat:51.50830,lng:-3.21450},
+  {street:"Fairwater Rd",inst:"2nd right, EOR left",type:"residential",lat:51.50340,lng:-3.22800},
+  {street:"Pwllmelin Rd",inst:"5th right",type:"residential",lat:51.50150,lng:-3.23500},
+  {street:"Fairwood Rd",inst:"EOR left",type:"residential",lat:51.49920,lng:-3.24100},
+  {street:"Pwllmelin Rd / Fairwater Rd",inst:"Traffic lights → left",type:"trafficlight",lat:51.49780,lng:-3.23300},
+  {street:"Cardiff Rd / Bridge St",inst:"Roundabout → ahead",type:"roundabout",lat:51.49520,lng:-3.22200},
+  {street:"Llantrisant Rd",inst:"Right",type:"main",lat:51.49610,lng:-3.21700},
+  {street:"Gillian Rd / Highfields",inst:"Left",type:"residential",lat:51.50050,lng:-3.21200},
+  {street:"Greenwood Rd",inst:"EOR right",type:"residential",lat:51.50280,lng:-3.20950},
+  {street:"Llantrisant Rd",inst:"Roundabout → right",type:"roundabout",lat:51.50450,lng:-3.21050},
+  {street:"Danescourt Way",inst:"Roundabout → right",type:"roundabout",lat:51.50700,lng:-3.21300},
+  {street:"Llantrisant Rd",inst:"2nd roundabout ahead, left",type:"roundabout",lat:51.50950,lng:-3.21100},
+  {street:"Crofft Y Genau Rd",inst:"EOR left",type:"residential",lat:51.51200,lng:-3.20900},
+  {street:"Cardiff Rd / St Fagans Rd",inst:"T/L ahead, right",type:"trafficlight",lat:51.51550,lng:-3.20750},
+  {street:"Llandetty Rd",inst:"EOR left",type:"residential",lat:51.51760,lng:-3.20680},
+  {street:"Llanbedr Rd",inst:"EOR right",type:"residential",lat:51.51830,lng:-3.20580},
+  {street:"Llangattock Rd",inst:"EOR left",type:"residential",lat:51.51900,lng:-3.20520},
+  {street:"Finchley Rd",inst:"Left",type:"residential",lat:51.51960,lng:-3.20490},
+  {street:"Norbury Rd",inst:"Left → Test Centre",type:"residential",lat:51.52027,lng:-3.20560}
+]},
+{id:2,name:"Route 2 — Gabalfa & Whitchurch",center:"Gabalfa / Whitchurch",
+ tags:{residential:true,roundabout:true,trafficlight:true,dual:true,main:true},
+ roundabouts:3,lights:3,
+ steps:[
+  {street:"Test Centre",inst:"Depart — EOR right",type:"residential",lat:51.52027,lng:-3.20560},
+  {street:"Norbury Rd",inst:"EOR right",type:"residential",lat:51.52080,lng:-3.20500},
+  {street:"St Fagans Rd / Waungron Rd",inst:"Traffic lights → left",type:"trafficlight",lat:51.50950,lng:-3.21100},
+  {street:"Western Avenue",inst:"4th T/L ahead, 2nd slip rd left",type:"dual",lat:51.50380,lng:-3.19800},
+  {street:"Gabalfa Roundabout",inst:"Roundabout → left",type:"roundabout",lat:51.50720,lng:-3.19200},
+  {street:"North Rd",inst:"T/L ahead",type:"trafficlight",lat:51.50950,lng:-3.19100},
+  {street:"Merthyr Rd",inst:"Bear left",type:"main",lat:51.51350,lng:-3.19400},
+  {street:"The Philog",inst:"EOR left",type:"residential",lat:51.52050,lng:-3.19800},
+  {street:"Merthyr Rd",inst:"Right",type:"main",lat:51.51980,lng:-3.19600},
+  {street:"Heol Penyfai",inst:"EOR right",type:"residential",lat:51.51800,lng:-3.19300},
+  {street:"Westfield Rd",inst:"Left",type:"residential",lat:51.51650,lng:-3.19450},
+  {street:"Heol Penyfai",inst:"Right",type:"residential",lat:51.51520,lng:-3.19300},
+  {street:"Merthyr Rd",inst:"T/L ahead, left",type:"trafficlight",lat:51.51380,lng:-3.19350},
+  {street:"St. Davids Rd",inst:"EOR right",type:"residential",lat:51.51200,lng:-3.19500},
+  {street:"Tynewydd",inst:"EOR left",type:"residential",lat:51.51050,lng:-3.19350},
+  {street:"Bishops Rd",inst:"Right",type:"residential",lat:51.50920,lng:-3.19500},
+  {street:"Bishops Place",inst:"EOR left",type:"residential",lat:51.50850,lng:-3.19400},
+  {street:"Church Rd",inst:"EOR left",type:"residential",lat:51.50750,lng:-3.19550},
+  {street:"Heol Don / Station Rd",inst:"Mini roundabout → right",type:"roundabout",lat:51.50620,lng:-3.19700},
+  {street:"Bridge Rd",inst:"Roundabout → right",type:"roundabout",lat:51.50480,lng:-3.20100},
+  {street:"Llantrisant Rd",inst:"Roundabout ahead, roundabout left",type:"roundabout",lat:51.50280,lng:-3.20800},
+  {street:"Waterhall Rd / Plasmawr Rd / Fairwater Rd",inst:"T/L left",type:"trafficlight",lat:51.50620,lng:-3.21500},
+  {street:"St Fagans Rd",inst:"3rd right → Test Centre",type:"residential",lat:51.52027,lng:-3.20560}
+]},
+{id:3,name:"Route 3 — Pentrebane",center:"Pentrebane / Fairwater",
+ tags:{residential:true,roundabout:true,trafficlight:true,dual:false,main:false},
+ roundabouts:2,lights:1,
+ steps:[
+  {street:"Test Centre",inst:"Depart — EOR left",type:"residential",lat:51.52027,lng:-3.20560},
+  {street:"Norbury Rd",inst:"EOR left",type:"residential",lat:51.51980,lng:-3.20620},
+  {street:"St Fagans Rd",inst:"T/L right",type:"trafficlight",lat:51.50830,lng:-3.21450},
+  {street:"Fairwater Rd / Plasmawr Rd",inst:"Left",type:"residential",lat:51.50340,lng:-3.22800},
+  {street:"Pentrebane Rd",inst:"Right",type:"residential",lat:51.50100,lng:-3.23800},
+  {street:"Ashcroft Crescent",inst:"EOR right",type:"residential",lat:51.49800,lng:-3.24300},
+  {street:"Pentrebane Rd",inst:"Left",type:"residential",lat:51.49900,lng:-3.24100},
+  {street:"Beechley Drive",inst:"2nd left",type:"residential",lat:51.49700,lng:-3.23600},
+  {street:"Maple Rd",inst:"EOR right",type:"residential",lat:51.49550,lng:-3.23200},
+  {street:"Beechley Drive",inst:"EOR right",type:"residential",lat:51.49650,lng:-3.23000},
+  {street:"Pentrebane Rd",inst:"EOR left",type:"residential",lat:51.49900,lng:-3.23200},
+  {street:"Waterhall Rd",inst:"Roundabout → left",type:"roundabout",lat:51.50200,lng:-3.22500},
+  {street:"Llantrisant Rd",inst:"2nd roundabout ahead, left",type:"roundabout",lat:51.50450,lng:-3.21050},
+  {street:"Croft-Y-Genau Rd",inst:"Ahead, EOR left",type:"residential",lat:51.51200,lng:-3.20900},
+  {street:"Cardiff Rd / St Fagans Rd",inst:"3rd right",type:"residential",lat:51.51550,lng:-3.20750},
+  {street:"Fairways Crescent / Bwlch Rd / Finchley Rd",inst:"Left",type:"residential",lat:51.51800,lng:-3.20600},
+  {street:"Norbury Rd",inst:"Into → Test Centre",type:"residential",lat:51.52027,lng:-3.20560}
+]},
+{id:4,name:"Route 4 — Radyr & Fairwater",center:"Radyr / Heol Isaf",
+ tags:{residential:true,roundabout:true,trafficlight:true,dual:false,main:false},
+ roundabouts:3,lights:2,
+ steps:[
+  {street:"Test Centre",inst:"Depart — right, left, EOR left",type:"residential",lat:51.52027,lng:-3.20560},
+  {street:"Norbury Rd",inst:"Right, left, EOR left",type:"residential",lat:51.51980,lng:-3.20620},
+  {street:"St Fagans Rd",inst:"T/L right",type:"trafficlight",lat:51.50830,lng:-3.21450},
+  {street:"Fairwater Rd / Plasmawr Rd / Waterhall Rd",inst:"Roundabout → left",type:"roundabout",lat:51.50200,lng:-3.22500},
+  {street:"Llantrisant Rd",inst:"Roundabout 2nd exit",type:"roundabout",lat:51.49900,lng:-3.23100},
+  {street:"Heol Isaf",inst:"Left",type:"residential",lat:51.49580,lng:-3.23700},
+  {street:"Windsor Rd",inst:"Left",type:"residential",lat:51.49350,lng:-3.24100},
+  {street:"Derwen Drysgol / Bryn Derwen",inst:"EOR right",type:"residential",lat:51.49150,lng:-3.24400},
+  {street:"Heol Isaf",inst:"Left",type:"residential",lat:51.49000,lng:-3.24000},
+  {street:"Kings Rd",inst:"Right, left, EOR left",type:"residential",lat:51.48850,lng:-3.23500},
+  {street:"Taff Terrace",inst:"Left",type:"residential",lat:51.48700,lng:-3.23200},
+  {street:"Kings Rd",inst:"EOR left",type:"residential",lat:51.48800,lng:-3.22900},
+  {street:"Heol Isaf",inst:"Roundabout 2nd exit",type:"roundabout",lat:51.49100,lng:-3.22400},
+  {street:"Llantrisant Rd",inst:"Roundabout ahead, left",type:"roundabout",lat:51.49500,lng:-3.21800},
+  {street:"Crofft Y Genau",inst:"EOR left",type:"residential",lat:51.51200,lng:-3.20900},
+  {street:"Cardiff Rd / St Fagans Rd",inst:"T/L ahead, 3rd right",type:"trafficlight",lat:51.51550,lng:-3.20750},
+  {street:"Norbury Rd",inst:"Right → Test Centre",type:"residential",lat:51.52027,lng:-3.20560}
+]},
+{id:5,name:"Route 5 — Canton & A4232",center:"Canton / Leckwith",
+ tags:{residential:true,roundabout:true,trafficlight:true,dual:true,main:true},
+ roundabouts:3,lights:4,
+ steps:[
+  {street:"Test Centre",inst:"Depart — right, left, EOR right",type:"residential",lat:51.52027,lng:-3.20560},
+  {street:"Norbury Rd",inst:"Right, left, EOR right",type:"residential",lat:51.51980,lng:-3.20620},
+  {street:"St Fagans Rd / Waungron Rd",inst:"T/L ahead, T/L left",type:"trafficlight",lat:51.50950,lng:-3.21100},
+  {street:"Ely Rd",inst:"Right",type:"main",lat:51.50600,lng:-3.21800},
+  {street:"St Michaels Rd",inst:"Right, left, right",type:"residential",lat:51.49800,lng:-3.21200},
+  {street:"Palace Rd",inst:"EOR right",type:"residential",lat:51.49500,lng:-3.20600},
+  {street:"Pencisely Rd",inst:"Left",type:"residential",lat:51.49350,lng:-3.20300},
+  {street:"Greenwich Rd / Ovington Terrace",inst:"Right",type:"residential",lat:51.49200,lng:-3.19800},
+  {street:"Greenwich Rd",inst:"EOR right",type:"residential",lat:51.49100,lng:-3.19500},
+  {street:"Pencisely Rd",inst:"Right",type:"residential",lat:51.49200,lng:-3.19200},
+  {street:"Clive Rd",inst:"T/L ahead",type:"trafficlight",lat:51.48950,lng:-3.18800},
+  {street:"Grosvenor Rd",inst:"T/L ahead",type:"trafficlight",lat:51.48700,lng:-3.18500},
+  {street:"Broad St",inst:"Roundabout left, T/L right",type:"roundabout",lat:51.48450,lng:-3.18200},
+  {street:"Leckwith Rd",inst:"Roundabout 4th exit",type:"roundabout",lat:51.47950,lng:-3.19200},
+  {street:"A4232",inst:"Roundabout 4th exit (dual c'way)",type:"dual",lat:51.47600,lng:-3.20500},
+  {street:"Cowbridge Rd West",inst:"Roundabout left",type:"roundabout",lat:51.48200,lng:-3.21800},
+  {street:"Western Avenue",inst:"T/L left",type:"trafficlight",lat:51.49800,lng:-3.20800},
+  {street:"Waungron Rd / St Fagans Rd",inst:"3rd left",type:"residential",lat:51.50950,lng:-3.21100},
+  {street:"Norbury Rd",inst:"Right → Test Centre",type:"residential",lat:51.52027,lng:-3.20560}
+]},
+{id:6,name:"Route 6 — Ely & Canton Loop",center:"Ely / Canton / Leckwith",
+ tags:{residential:true,roundabout:true,trafficlight:true,dual:true,main:true},
+ roundabouts:4,lights:5,
+ steps:[
+  {street:"Test Centre",inst:"Depart — right, left, EOR right",type:"residential",lat:51.52027,lng:-3.20560},
+  {street:"Norbury Rd",inst:"Right, left, EOR right",type:"residential",lat:51.51980,lng:-3.20620},
+  {street:"St Fagans Rd / Waungron Rd",inst:"2x T/L ahead",type:"trafficlight",lat:51.50950,lng:-3.21100},
+  {street:"Pencisely Rd",inst:"Right",type:"residential",lat:51.50650,lng:-3.21400},
+  {street:"West Orchard Crescent",inst:"EOR right",type:"residential",lat:51.50450,lng:-3.21600},
+  {street:"Windway Rd",inst:"EOR left",type:"residential",lat:51.50250,lng:-3.21900},
+  {street:"Ely Rd",inst:"EOR left",type:"main",lat:51.50050,lng:-3.22200},
+  {street:"Western Ave",inst:"Roundabout right 2nd exit",type:"roundabout",lat:51.49800,lng:-3.20800},
+  {street:"Cowbridge Rd West",inst:"2nd left",type:"residential",lat:51.49500,lng:-3.22000},
+  {street:"Colin Way",inst:"Right",type:"residential",lat:51.49200,lng:-3.22400},
+  {street:"Arles Rd",inst:"EOR right",type:"residential",lat:51.48900,lng:-3.22100},
+  {street:"Vincent Rd",inst:"Roundabout ahead 2nd exit, T/L left",type:"roundabout",lat:51.48600,lng:-3.21800},
+  {street:"Cowbridge Rd West",inst:"Roundabout left",type:"roundabout",lat:51.48200,lng:-3.21800},
+  {street:"A4232",inst:"1st exit, roundabout left (dual c'way)",type:"dual",lat:51.47600,lng:-3.20500},
+  {street:"Leckwith Rd",inst:"T/L left",type:"trafficlight",lat:51.47950,lng:-3.19200},
+  {street:"Broad St",inst:"Roundabout right 3rd exit, T/L left",type:"roundabout",lat:51.48450,lng:-3.18200},
+  {street:"Lansdowne Rd / Cowbridge Rd East",inst:"Roundabout right 2nd exit",type:"roundabout",lat:51.48800,lng:-3.18500},
+  {street:"Western Ave",inst:"T/L left",type:"trafficlight",lat:51.49800,lng:-3.20800},
+  {street:"Waungron Rd / St Fagans Rd",inst:"3rd left",type:"residential",lat:51.50950,lng:-3.21100},
+  {street:"Norbury Rd",inst:"Right → Test Centre",type:"residential",lat:51.52027,lng:-3.20560}
+]},
+{id:7,name:"Route 7 — Canton & Llantrisant",center:"Canton / Pontcanna",
+ tags:{residential:true,roundabout:true,trafficlight:true,dual:false,main:true},
+ roundabouts:4,lights:5,
+ steps:[
+  {street:"Test Centre",inst:"Depart — right, left, EOR right",type:"residential",lat:51.52027,lng:-3.20560},
+  {street:"Norbury Rd",inst:"Right, left, EOR right",type:"residential",lat:51.51980,lng:-3.20620},
+  {street:"St Fagans Rd / Waungron Rd",inst:"T/L ahead, T/L left",type:"trafficlight",lat:51.50950,lng:-3.21100},
+  {street:"Ely Rd",inst:"Right",type:"main",lat:51.50600,lng:-3.21800},
+  {street:"St Michaels Rd",inst:"Right, left, EOR left",type:"residential",lat:51.49800,lng:-3.21200},
+  {street:"Caewal Rd",inst:"EOR left",type:"residential",lat:51.49550,lng:-3.20900},
+  {street:"Pencisely Rd",inst:"3rd right",type:"residential",lat:51.49350,lng:-3.20300},
+  {street:"Greenwich Rd / Ovington Terrace",inst:"Right",type:"residential",lat:51.49200,lng:-3.19800},
+  {street:"Greenwich Rd",inst:"EOR right",type:"residential",lat:51.49100,lng:-3.19500},
+  {street:"Pencisely Rd",inst:"Right",type:"residential",lat:51.49200,lng:-3.19200},
+  {street:"Clive Rd",inst:"2nd left",type:"residential",lat:51.48950,lng:-3.18800},
+  {street:"Romilly Rd",inst:"T/L left",type:"trafficlight",lat:51.48700,lng:-3.18400},
+  {street:"Llandaff Rd",inst:"T/L ahead",type:"trafficlight",lat:51.48500,lng:-3.18800},
+  {street:"Cardiff Rd",inst:"3x T/L ahead",type:"trafficlight",lat:51.48200,lng:-3.19500},
+  {street:"Bridge St",inst:"Roundabout → ahead",type:"roundabout",lat:51.49520,lng:-3.22200},
+  {street:"Llantrisant Rd",inst:"4x roundabouts ahead",type:"roundabout",lat:51.50450,lng:-3.21050},
+  {street:"Crofft Y Genau",inst:"EOR left",type:"residential",lat:51.51200,lng:-3.20900},
+  {street:"Cardiff Rd / St Fagans Rd",inst:"T/L ahead, 3rd right",type:"trafficlight",lat:51.51550,lng:-3.20750},
+  {street:"Norbury Rd",inst:"Right → Test Centre",type:"residential",lat:51.52027,lng:-3.20560}
+]},
+{id:8,name:"Route 8 — Ely & Leckwith",center:"Ely / Cowbridge Rd West",
+ tags:{residential:true,roundabout:true,trafficlight:true,dual:true,main:true},
+ roundabouts:3,lights:4,
+ steps:[
+  {street:"Test Centre",inst:"Depart — right, left, EOR right",type:"residential",lat:51.52027,lng:-3.20560},
+  {street:"Norbury Rd",inst:"Right, left, EOR right",type:"residential",lat:51.51980,lng:-3.20620},
+  {street:"St Fagans Rd / Waungron Rd",inst:"T/L right",type:"trafficlight",lat:51.50950,lng:-3.21100},
+  {street:"Western Ave",inst:"Roundabout right 2nd exit",type:"roundabout",lat:51.49800,lng:-3.20800},
+  {street:"Cowbridge Rd West",inst:"T/L left",type:"trafficlight",lat:51.49500,lng:-3.22000},
+  {street:"Riverside Terrace / Dyfrig Rd",inst:"2nd right",type:"residential",lat:51.49200,lng:-3.22600},
+  {street:"Littlecroft Ave",inst:"EOR right",type:"residential",lat:51.49000,lng:-3.22900},
+  {street:"Colin Way",inst:"Left",type:"residential",lat:51.49200,lng:-3.22400},
+  {street:"Arles Rd",inst:"EOR left",type:"residential",lat:51.48900,lng:-3.22100},
+  {street:"Colin Way",inst:"EOR left",type:"residential",lat:51.49100,lng:-3.21800},
+  {street:"Cowbridge Rd West",inst:"Roundabout left",type:"roundabout",lat:51.48200,lng:-3.21800},
+  {street:"A4232",inst:"1st exit, roundabout left (dual c'way)",type:"dual",lat:51.47600,lng:-3.20500},
+  {street:"Leckwith Rd",inst:"T/L ahead, T/L left",type:"trafficlight",lat:51.47950,lng:-3.19200},
+  {street:"Atlas Rd / Lansdowne Rd / Cowbridge Rd East",inst:"3rd right",type:"residential",lat:51.48800,lng:-3.18500},
+  {street:"Windway Rd",inst:"Right",type:"residential",lat:51.50250,lng:-3.21900},
+  {street:"Windway Ave",inst:"Emerge right, EOR right",type:"residential",lat:51.50100,lng:-3.21700},
+  {street:"Windway Rd",inst:"EOR right",type:"residential",lat:51.50250,lng:-3.21900},
+  {street:"Ely Rd",inst:"Left",type:"main",lat:51.50050,lng:-3.22200},
+  {street:"Waungron Rd",inst:"T/L ahead",type:"trafficlight",lat:51.50950,lng:-3.21100},
+  {street:"St Fagans Rd",inst:"3rd left",type:"residential",lat:51.51200,lng:-3.20900},
+  {street:"Norbury Rd",inst:"Right → Test Centre",type:"residential",lat:51.52027,lng:-3.20560}
+]},
+{id:9,name:"Route 9 — Radyr & Western Ave",center:"Radyr / Llantrisant Rd",
+ tags:{residential:true,roundabout:true,trafficlight:true,dual:false,main:true},
+ roundabouts:4,lights:2,
+ steps:[
+  {street:"Test Centre",inst:"Depart — right, left, EOR left",type:"residential",lat:51.52027,lng:-3.20560},
+  {street:"Norbury Rd",inst:"Right, left, EOR left",type:"residential",lat:51.51980,lng:-3.20620},
+  {street:"St Fagans Rd",inst:"Left",type:"residential",lat:51.51700,lng:-3.20700},
+  {street:"Llangattock Rd",inst:"EOR right",type:"residential",lat:51.51900,lng:-3.20520},
+  {street:"Bwlch Rd / Fairways Crescent",inst:"EOR left",type:"residential",lat:51.51800,lng:-3.20600},
+  {street:"St Fagans Rd / Cardiff Rd",inst:"Right",type:"main",lat:51.51550,lng:-3.20750},
+  {street:"Crofft Y Genau",inst:"EOR right",type:"residential",lat:51.51200,lng:-3.20900},
+  {street:"Llantrisant Rd",inst:"Roundabout ahead, roundabout left",type:"roundabout",lat:51.50450,lng:-3.21050},
+  {street:"Heol Isaf",inst:"2nd right",type:"residential",lat:51.49580,lng:-3.23700},
+  {street:"Kings Rd",inst:"EOR left",type:"residential",lat:51.48800,lng:-3.22900},
+  {street:"Heol Isaf",inst:"Roundabout left",type:"roundabout",lat:51.49100,lng:-3.22400},
+  {street:"Llantrisant Rd",inst:"2x roundabout ahead 2nd exit, 3rd left",type:"roundabout",lat:51.50450,lng:-3.21050},
+  {street:"Gillian Rd / Highfields",inst:"Left",type:"residential",lat:51.50050,lng:-3.21200},
+  {street:"Greenwood Rd",inst:"EOR left",type:"residential",lat:51.50280,lng:-3.20950},
+  {street:"Llantrisant Rd",inst:"Mini roundabout ahead 2nd exit",type:"roundabout",lat:51.50450,lng:-3.21050},
+  {street:"Bridge St / Cardiff Rd",inst:"T/L right",type:"trafficlight",lat:51.49520,lng:-3.22200},
+  {street:"Western Ave",inst:"T/L right",type:"trafficlight",lat:51.49800,lng:-3.20800},
+  {street:"Waungron Rd / St Fagans Rd",inst:"3rd left",type:"residential",lat:51.50950,lng:-3.21100},
+  {street:"Norbury Rd",inst:"Right → Test Centre",type:"residential",lat:51.52027,lng:-3.20560}
+]},
+{id:10,name:"Route 10 — Radyr & Llandetty",center:"Radyr / St Fagans Rd",
+ tags:{residential:true,roundabout:true,trafficlight:true,dual:false,main:false},
+ roundabouts:3,lights:1,
+ steps:[
+  {street:"Test Centre",inst:"Depart — right, left, EOR left",type:"residential",lat:51.52027,lng:-3.20560},
+  {street:"Norbury Rd",inst:"Right, left, EOR left",type:"residential",lat:51.51980,lng:-3.20620},
+  {street:"St Fagans Rd",inst:"2nd left",type:"residential",lat:51.51700,lng:-3.20700},
+  {street:"Llandetty Rd",inst:"EOR left",type:"residential",lat:51.51760,lng:-3.20680},
+  {street:"Llanbedr Rd",inst:"EOR right",type:"residential",lat:51.51830,lng:-3.20580},
+  {street:"Llangattock Rd",inst:"EOR right",type:"residential",lat:51.51900,lng:-3.20520},
+  {street:"Bwlch Rd / Fairways Crescent",inst:"EOR left",type:"residential",lat:51.51800,lng:-3.20600},
+  {street:"St Fagans Rd / Cardiff Rd",inst:"Right",type:"main",lat:51.51550,lng:-3.20750},
+  {street:"Crofft Y Genau",inst:"EOR right",type:"residential",lat:51.51200,lng:-3.20900},
+  {street:"Llantrisant Rd",inst:"Roundabout ahead, roundabout left",type:"roundabout",lat:51.50450,lng:-3.21050},
+  {street:"Heol Isaf",inst:"2nd right",type:"residential",lat:51.49580,lng:-3.23700},
+  {street:"Kings Rd",inst:"Right",type:"residential",lat:51.48850,lng:-3.23500},
+  {street:"Taff Terrace",inst:"Left",type:"residential",lat:51.48700,lng:-3.23200},
+  {street:"Kings Rd",inst:"EOR left",type:"residential",lat:51.48800,lng:-3.22900},
+  {street:"Heol Isaf",inst:"Roundabout left",type:"roundabout",lat:51.49100,lng:-3.22400},
+  {street:"Llantrisant Rd",inst:"Roundabout right 3rd exit",type:"roundabout",lat:51.50450,lng:-3.21050},
+  {street:"Waterhall Rd / Plasmawr Rd / Fairwater Rd",inst:"T/L left",type:"trafficlight",lat:51.50620,lng:-3.21500},
+  {street:"St Fagans Rd",inst:"3rd right",type:"residential",lat:51.51200,lng:-3.20900},
+  {street:"Norbury Rd",inst:"Right → Test Centre",type:"residential",lat:51.52027,lng:-3.20560}
+]},
+{id:11,name:"Route 11 — Whitchurch & Heath",center:"Whitchurch / Heath",
+ tags:{residential:true,roundabout:true,trafficlight:true,dual:false,main:true},
+ roundabouts:2,lights:6,
+ steps:[
+  {street:"Test Centre",inst:"Depart — EOR right",type:"residential",lat:51.52027,lng:-3.20560},
+  {street:"Norbury Rd",inst:"EOR right",type:"residential",lat:51.52080,lng:-3.20500},
+  {street:"St Fagans Rd",inst:"T/L left",type:"trafficlight",lat:51.51700,lng:-3.20700},
+  {street:"Western Ave",inst:"4x T/L ahead, roundabout right 3rd exit",type:"dual",lat:51.50380,lng:-3.19800},
+  {street:"Whitchurch Rd",inst:"Left",type:"main",lat:51.50900,lng:-3.19000},
+  {street:"Allensbank Rd",inst:"T/L left",type:"trafficlight",lat:51.51200,lng:-3.18800},
+  {street:"Heathwood Rd",inst:"2nd right",type:"residential",lat:51.51500,lng:-3.18500},
+  {street:"Cefn Carnau Rd",inst:"EOR left",type:"residential",lat:51.51800,lng:-3.18200},
+  {street:"St Isan Rd",inst:"EOR right",type:"residential",lat:51.52000,lng:-3.18400},
+  {street:"Heathway",inst:"Left",type:"residential",lat:51.52200,lng:-3.18600},
+  {street:"St Brigid Rd",inst:"EOR right",type:"residential",lat:51.52400,lng:-3.18800},
+  {street:"Heathway",inst:"EOR right",type:"residential",lat:51.52200,lng:-3.18600},
+  {street:"Heathwood Rd",inst:"T/L left",type:"trafficlight",lat:51.51500,lng:-3.18500},
+  {street:"Caerphilly Rd / North Rd",inst:"Roundabout right 4th exit",type:"roundabout",lat:51.51200,lng:-3.19200},
+  {street:"Western Ave",inst:"3x T/L ahead, T/L left",type:"trafficlight",lat:51.50380,lng:-3.19800},
+  {street:"Ely Rd",inst:"T/L right",type:"trafficlight",lat:51.50600,lng:-3.21800},
+  {street:"Waungron Rd / St Fagans Rd",inst:"3rd left",type:"residential",lat:51.50950,lng:-3.21100},
+  {street:"Norbury Rd",inst:"Right → Test Centre",type:"residential",lat:51.52027,lng:-3.20560}
+]},
+{id:12,name:"Route 12 — Pentrebane & Finchley",center:"Pentrebane / Waterhall",
+ tags:{residential:true,roundabout:true,trafficlight:false,dual:false,main:false},
+ roundabouts:2,lights:0,
+ steps:[
+  {street:"Test Centre",inst:"Depart — right, right, EOR right",type:"residential",lat:51.52027,lng:-3.20560},
+  {street:"Norbury Rd",inst:"Right, right, EOR right",type:"residential",lat:51.52080,lng:-3.20500},
+  {street:"Finchley Rd / Bwlch Rd / Fairways Crescent",inst:"EOR right",type:"residential",lat:51.51960,lng:-3.20490},
+  {street:"St Fagans Rd",inst:"2nd left",type:"residential",lat:51.51700,lng:-3.20700},
+  {street:"Gorse Place",inst:"EOR right",type:"residential",lat:51.50400,lng:-3.22500},
+  {street:"Beechley Drive",inst:"Left",type:"residential",lat:51.49700,lng:-3.23600},
+  {street:"Orange Grove",inst:"EOR right",type:"residential",lat:51.49550,lng:-3.23000},
+  {street:"Beechley Drive",inst:"Right",type:"residential",lat:51.49700,lng:-3.23600},
+  {street:"Pentrebane Rd",inst:"Left",type:"residential",lat:51.49900,lng:-3.24100},
+  {street:"Ashcroft Crescent",inst:"EOR left",type:"residential",lat:51.49800,lng:-3.24300},
+  {street:"Pentrebane Rd",inst:"EOR left",type:"residential",lat:51.49900,lng:-3.24100},
+  {street:"Waterhall Rd",inst:"Roundabout left",type:"roundabout",lat:51.50200,lng:-3.22500},
+  {street:"Llantrisant Rd",inst:"2x roundabouts ahead, left",type:"roundabout",lat:51.50450,lng:-3.21050},
+  {street:"Crofft Y Genau",inst:"EOR left",type:"residential",lat:51.51200,lng:-3.20900},
+  {street:"Cardiff Rd / St Fagans Rd",inst:"2nd right",type:"residential",lat:51.51550,lng:-3.20750},
+  {street:"Norbury Rd",inst:"Left → Test Centre",type:"residential",lat:51.52027,lng:-3.20560}
+]},
+{id:13,name:"Route 13 — Pentrebane & Western",center:"Pentrebane / Western Ave",
+ tags:{residential:true,roundabout:true,trafficlight:true,dual:false,main:true},
+ roundabouts:2,lights:4,
+ steps:[
+  {street:"Test Centre",inst:"Depart — right, left, EOR left",type:"residential",lat:51.52027,lng:-3.20560},
+  {street:"Norbury Rd",inst:"Right, left, EOR left",type:"residential",lat:51.51980,lng:-3.20620},
+  {street:"St Fagans Rd",inst:"T/L ahead, 2nd right",type:"trafficlight",lat:51.51700,lng:-3.20700},
+  {street:"Gorse Place",inst:"EOR left",type:"residential",lat:51.50400,lng:-3.22500},
+  {street:"Beechley Drive",inst:"Left",type:"residential",lat:51.49700,lng:-3.23600},
+  {street:"Firs Ave",inst:"EOR left",type:"residential",lat:51.49600,lng:-3.23400},
+  {street:"Beechley Drive",inst:"Right",type:"residential",lat:51.49700,lng:-3.23600},
+  {street:"Maple Rd",inst:"EOR right",type:"residential",lat:51.49550,lng:-3.23200},
+  {street:"Beechley Drive",inst:"EOR right",type:"residential",lat:51.49650,lng:-3.23000},
+  {street:"Pentrebane Rd",inst:"EOR left",type:"residential",lat:51.49900,lng:-3.24100},
+  {street:"Waterhall Rd",inst:"Roundabout right 3rd exit",type:"roundabout",lat:51.50200,lng:-3.22500},
+  {street:"Llantrisant Rd",inst:"2x roundabouts ahead",type:"roundabout",lat:51.50450,lng:-3.21050},
+  {street:"Cardiff Rd",inst:"T/L ahead, T/L right",type:"trafficlight",lat:51.49520,lng:-3.22200},
+  {street:"Western Ave",inst:"T/L left",type:"trafficlight",lat:51.49800,lng:-3.20800},
+  {street:"Ely Rd",inst:"T/L right",type:"trafficlight",lat:51.50600,lng:-3.21800},
+  {street:"Waungron Rd",inst:"T/L ahead, left",type:"trafficlight",lat:51.50950,lng:-3.21100},
+  {street:"Old St Fagans Rd",inst:"2nd right",type:"residential",lat:51.51200,lng:-3.20900},
+  {street:"Norbury Rd",inst:"Right, left → Test Centre",type:"residential",lat:51.52027,lng:-3.20560}
+]},
+{id:14,name:"Route 14 — Cathedral & Gabalfa",center:"Canton / Cathedral Rd",
+ tags:{residential:true,roundabout:true,trafficlight:true,dual:false,main:true},
+ roundabouts:3,lights:4,
+ steps:[
+  {street:"Test Centre",inst:"Depart — right, left, EOR right",type:"residential",lat:51.52027,lng:-3.20560},
+  {street:"Norbury Rd",inst:"Right, left, EOR right",type:"residential",lat:51.51980,lng:-3.20620},
+  {street:"St Fagans Rd / Waungron Rd",inst:"T/L ahead",type:"trafficlight",lat:51.50950,lng:-3.21100},
+  {street:"Waungron Rd",inst:"T/L left",type:"trafficlight",lat:51.50800,lng:-3.21300},
+  {street:"Ely Rd",inst:"Right",type:"main",lat:51.50600,lng:-3.21800},
+  {street:"St Michaels Rd",inst:"Right, left, right",type:"residential",lat:51.49800,lng:-3.21200},
+  {street:"Caewal Rd",inst:"Left",type:"residential",lat:51.49550,lng:-3.20900},
+  {street:"Western Ave",inst:"T/L right",type:"trafficlight",lat:51.49800,lng:-3.20800},
+  {street:"Ely Rd",inst:"EOR left",type:"main",lat:51.50050,lng:-3.22200},
+  {street:"Cardiff Rd / Bridge St",inst:"Roundabout right 2nd exit, mini roundabout right",type:"roundabout",lat:51.49520,lng:-3.22200},
+  {street:"Gabalfa Rd / River View / Colwill Rd",inst:"Left",type:"residential",lat:51.49800,lng:-3.21500},
+  {street:"Cathedral View",inst:"Roundabout right 3rd exit",type:"roundabout",lat:51.49950,lng:-3.20800},
+  {street:"Aberporth Rd",inst:"EOR left, roundabout right 5th exit",type:"roundabout",lat:51.50200,lng:-3.20500},
+  {street:"Western Ave",inst:"2x T/L ahead, T/L right",type:"trafficlight",lat:51.49800,lng:-3.20800},
+  {street:"Waungron Rd / St Fagans Rd",inst:"3rd left",type:"residential",lat:51.50950,lng:-3.21100},
+  {street:"Norbury Rd",inst:"Right → Test Centre",type:"residential",lat:51.52027,lng:-3.20560}
+]}
+];
+
+// ── STATE ─────────────────────────────────────────────────────────────────────
+let selectedRoute=null,navStep=0,sortBy='roundabouts';
+let includeTypes=new Set(['residential','roundabout','trafficlight','dual','main']);
+let map=null,routePolyline=null,waypointMarkers=[],userMarker=null,userAccCircle=null;
+let watchId=null,userLat=null,userLng=null,gpsReady=false,missedTurnActive=false;
+let activeTab='routes',cachedRouteGeo={};
+
+const TYPE_COLOR={residential:'#6b7280',trafficlight:'#f59e0b',roundabout:'#60a5fa',dual:'#f87171',main:'#a78bfa'};
+
+function haversine(a,b,c,d){const R=6371000,x=(c-a)*Math.PI/180,y=(d-b)*Math.PI/180;const e=Math.sin(x/2)**2+Math.cos(a*Math.PI/180)*Math.cos(c*Math.PI/180)*Math.sin(y/2)**2;return R*2*Math.atan2(Math.sqrt(e),Math.sqrt(1-e));}
+const INST_ICON=i=>{if(/roundabout/i.test(i))return'🔄';if(/traffic light|lights|T\/L/i.test(i))return'🚦';if(/left/i.test(i)&&!/right/i.test(i))return'↰';if(/right/i.test(i)&&!/left/i.test(i))return'↱';if(/ahead/i.test(i))return'↑';if(/depart/i.test(i))return'🚗';return'→';};
+
+function startGPS(){
+  if(!navigator.geolocation)return;
+  const dot=document.getElementById('gps-dot'),lbl=document.getElementById('gps-label');
+  dot.className='searching';lbl.textContent='Searching…';
+  watchId=navigator.geolocation.watchPosition(pos=>{
+    dot.className='on';lbl.textContent='GPS ✓';gpsReady=true;
+    userLat=pos.coords.latitude;userLng=pos.coords.longitude;
+    updateUserMarker(userLat,userLng,pos.coords.accuracy);
+    if(activeTab==='nav'&&selectedRoute)checkProximity();
+  },()=>{document.getElementById('gps-dot').className='';document.getElementById('gps-label').textContent='GPS ✗';},{enableHighAccuracy:true,maximumAge:3000,timeout:15000});
+}
+
+function updateUserMarker(lat,lng,acc){
+  if(!map)return;
+  if(!userMarker){
+    const icon=L.divIcon({className:'',html:`<div style="width:18px;height:18px;border-radius:50%;background:#4ade80;border:3px solid white;box-shadow:0 0 10px rgba(74,222,128,.7)"></div>`,iconSize:[18,18],iconAnchor:[9,9]});
+    userMarker=L.marker([lat,lng],{icon,zIndexOffset:1000}).addTo(map);
+    userAccCircle=L.circle([lat,lng],{radius:acc||20,color:'#4ade80',fillColor:'#4ade80',fillOpacity:0.08,weight:1}).addTo(map);
+  }else{userMarker.setLatLng([lat,lng]);if(userAccCircle){userAccCircle.setLatLng([lat,lng]);if(acc)userAccCircle.setRadius(acc);}}
+}
+
+function checkProximity(){
+  if(!selectedRoute||!gpsReady)return;
+  const steps=selectedRoute.steps;
+  if(navStep>=steps.length-1)return;
+  const next=steps[navStep+1];
+  const dist=haversine(userLat,userLng,next.lat,next.lng);
+  if(dist<ADVANCE_DIST){navStep=Math.min(navStep+1,steps.length-1);missedTurnActive=false;renderNav();if(map)map.panTo([steps[navStep].lat,steps[navStep].lng],{animate:true});return;}
+  const distCurr=haversine(userLat,userLng,steps[navStep].lat,steps[navStep].lng);
+  if(distCurr>MISSED_DIST&&dist>MISSED_DIST){if(!missedTurnActive){missedTurnActive=true;renderNav();}}
+  else{if(missedTurnActive){missedTurnActive=false;renderNav();}}
+}
+
+async function fetchRoadRoute(steps){
+  const url=`https://api.geoapify.com/v1/routing?waypoints=${steps.map(s=>`${s.lat},${s.lng}`).join('|')}&mode=drive&apiKey=${GEOAPIFY_KEY}`;
+  const r=await fetch(url);if(!r.ok)throw new Error('API '+r.status);
+  const data=await r.json();if(!data.features?.length)throw new Error('No route');
+  const coords=[];
+  data.features.forEach(f=>{
+    if(f.geometry.type==='LineString')f.geometry.coordinates.forEach(c=>coords.push([c[1],c[0]]));
+    else if(f.geometry.type==='MultiLineString')f.geometry.coordinates.forEach(l=>l.forEach(c=>coords.push([c[1],c[0]])));
+  });
+  return coords;
+}
+
+function initMap(){
+  if(map)return;
+  map=L.map('leaflet-map',{center:[51.502,-3.205],zoom:13,zoomControl:false});
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap',maxZoom:19}).addTo(map);
+  L.control.zoom({position:'topright'}).addTo(map);
+  startGPS();
+}
+
+async function renderMap(){
+  initMap();setTimeout(()=>map&&map.invalidateSize(),80);
+  const nameEl=document.getElementById('map-route-name');
+  if(!selectedRoute){nameEl.textContent='No route selected';nameEl.style.color='var(--muted)';return;}
+  nameEl.textContent=selectedRoute.name;nameEl.style.color='var(--text)';
+  if(routePolyline){map.removeLayer(routePolyline);routePolyline=null;}
+  waypointMarkers.forEach(m=>map.removeLayer(m));waypointMarkers=[];
+  const steps=selectedRoute.steps;
+  const ov=document.getElementById('loading-overlay');
+  const lt=document.getElementById('loading-text');
+  ov.classList.remove('hide');lt.textContent='Fetching road route…';
+  try{
+    const cached=cachedRouteGeo[selectedRoute.id];
+    const roadCoords=cached||await fetchRoadRoute(steps);
+    if(!cached)cachedRouteGeo[selectedRoute.id]=roadCoords;
+    routePolyline=L.polyline(roadCoords,{color:'#4ade80',weight:5,opacity:.85}).addTo(map);
+  }catch(e){
+    lt.textContent='Offline — showing approximate lines';
+    await new Promise(r=>setTimeout(r,1000));
+    for(let i=0;i<steps.length-1;i++){
+      const pl=L.polyline([[steps[i].lat,steps[i].lng],[steps[i+1].lat,steps[i+1].lng]],{color:TYPE_COLOR[steps[i].type]||'#6b7280',weight:4,opacity:.7}).addTo(map);
+      waypointMarkers.push(pl);
+    }
+  }
+  ov.classList.add('hide');
+  steps.forEach((s,i)=>{
+    const isEnd=i===0||i===steps.length-1;
+    const col=isEnd?'#4ade80':(TYPE_COLOR[s.type]||'#6b7280');
+    const sz=isEnd?20:14,lbl=isEnd?(i===0?'S':'E'):String(i+1);
+    const icon=L.divIcon({className:'',html:`<div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${col};border:2px solid rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;font-size:${sz*.5}px;font-weight:700;color:#000;font-family:monospace">${lbl}</div>`,iconSize:[sz,sz],iconAnchor:[sz/2,sz/2]});
+    waypointMarkers.push(L.marker([s.lat,s.lng],{icon}).bindPopup(`<b>${s.street}</b><br><small>${s.inst}</small>`).addTo(map));
+  });
+  map.fitBounds(L.latLngBounds(steps.map(s=>[s.lat,s.lng])).pad(0.1));
+}
+
+function showTab(tab){
+  activeTab=tab;
+  ['routes','map','nav'].forEach(t=>{
+    const p=document.getElementById('panel-'+t);
+    if(t===tab){p.classList.add('active');p.style.display=t==='map'?'flex':'block';}
+    else{p.classList.remove('active');p.style.display='none';}
+    document.getElementById('tab-'+t).classList.toggle('active',t===tab);
+  });
+  if(tab==='map')renderMap();
+  if(tab==='nav')renderNav();
+}
+
+function toggleType(btn){const t=btn.dataset.type;if(includeTypes.has(t)){includeTypes.delete(t);btn.classList.remove('on');}else{includeTypes.add(t);btn.classList.add('on');}renderRouteList();}
+function setSort(btn){document.querySelectorAll('[data-sort]').forEach(b=>b.classList.remove('on'));btn.classList.add('on');sortBy=btn.dataset.sort;renderRouteList();}
+function filteredRoutes(){
+  return ROUTES.filter(r=>{
+    if(r.tags.dual&&!includeTypes.has('dual'))return false;
+    return Object.entries(r.tags).some(([k,v])=>v&&includeTypes.has(k));
+  }).sort((a,b)=>sortBy==='roundabouts'?b.roundabouts-a.roundabouts:sortBy==='lights'?b.lights-a.lights:b.steps.length-a.steps.length);
+}
+
+function renderRouteList(){
+  const list=document.getElementById('route-list');
+  const routes=filteredRoutes();
+  if(!routes.length){list.innerHTML='<div class="empty">No routes match your filters.</div>';return;}
+  list.innerHTML=routes.map(r=>{
+    const sel=selectedRoute&&selectedRoute.id===r.id;
+    const badges=[
+      r.roundabouts?`<span class="badge bb">🔄 ${r.roundabouts}</span>`:'',
+      r.lights?`<span class="badge ba">🚦 ${r.lights}</span>`:'',
+      r.tags.dual?`<span class="badge br">🛣 Dual</span>`:'',
+      `<span class="badge bg">${r.steps.length} steps</span>`
+    ].filter(Boolean).join('');
+    return `<div class="rcard ${sel?'sel':''}" onclick="selectRoute(${r.id})">
+      <div class="rname">${r.name}</div><div class="rcenter">${r.center}</div>
+      <div class="rbadges">${badges}</div>
+      <div class="rpreview">${r.steps.slice(0,3).map(s=>s.street).join(' → ')}…</div>
+    </div>`;
+  }).join('');
+  const btn=document.getElementById('start-btn');
+  if(selectedRoute){btn.disabled=false;btn.textContent=`▶ Start Route ${selectedRoute.id}`;}
+  else{btn.disabled=true;btn.textContent='Select a route to navigate';}
+}
+
+function selectRoute(id){selectedRoute=ROUTES.find(r=>r.id===id);navStep=0;missedTurnActive=false;renderRouteList();}
+
+function beginNav(){if(!selectedRoute)return;navStep=0;missedTurnActive=false;showTab('nav');}
+
+function renderNav(){
+  const content=document.getElementById('nav-content');
+  if(!selectedRoute){content.innerHTML='<div class="empty">Select a route from the Routes tab, then tap Navigate.</div>';return;}
+  const steps=selectedRoute.steps,total=steps.length,curr=steps[navStep];
+  const pct=Math.round((navStep/(total-1))*100),upcoming=steps.slice(navStep+1,navStep+4),isLast=navStep>=total-1;
+  let distStr='';
+  if(gpsReady&&!isLast){const d=haversine(userLat,userLng,steps[navStep+1].lat,steps[navStep+1].lng);distStr=d<1000?`${Math.round(d)}m to next`:`${(d/1000).toFixed(1)}km to next`;}
+  content.innerHTML=`
+    ${missedTurnActive?`<div class="nav-missed show">⚠️ Possible missed turn — check your position</div>`:''}
+    <div class="nav-hdr">
+      <span class="nav-step-lbl">${navStep+1}/${total}</span>
+      <div class="prog-bar"><div class="prog-fill" style="width:${pct}%"></div></div>
+      <span class="nav-step-lbl">${pct}%</span>
+    </div>
+    <div class="nav-curr">
+      <div class="nav-street-label">${navStep===0?'🚦 Start':'📍 Now on'}</div>
+      <div class="nav-street">${curr.street}</div>
+      <div class="nav-inst"><span class="nav-inst-icon">${INST_ICON(curr.inst)}</span>${curr.inst}</div>
+      ${distStr?`<div class="nav-dist">📏 ${distStr}</div>`:''}
+    </div>
+    ${upcoming.length?`<div class="up-label">Coming up</div><div class="up-list">${upcoming.map((s,i)=>`
+      <div class="up-item">
+        <span class="up-num">${navStep+i+2}</span>
+        <div style="flex:1"><div class="up-street">${s.street}</div><div class="up-inst">${s.inst}</div></div>
+        <span style="font-size:20px;margin-left:8px">${INST_ICON(s.inst)}</span>
+      </div>`).join('')}</div>`
+    :`<div class="empty" style="padding:16px">🏁 Final step — return to Test Centre and park safely.</div>`}
+    <div class="nav-ctrls">
+      <button class="nbtn" ${navStep===0?'disabled':''} onclick="navGo(-1)">← Back</button>
+      <button class="nbtn" onclick="showTab('map')">🗺 Map</button>
+      <button class="nbtn primary" ${isLast?'disabled':''} onclick="navGo(1)">${isLast?'Done ✓':'Next →'}</button>
+    </div>`;
+}
+
+function navGo(dir){
+  navStep=Math.max(0,Math.min(selectedRoute.steps.length-1,navStep+dir));
+  missedTurnActive=false;renderNav();
+  if(map&&selectedRoute){const s=selectedRoute.steps[navStep];map.panTo([s.lat,s.lng],{animate:true});}
+}
+
+renderRouteList();
+setTimeout(startGPS,300);
+</script>
+</body>
+</html>
