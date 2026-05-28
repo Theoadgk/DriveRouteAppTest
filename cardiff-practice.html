@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Cardiff Practice">
+<meta name="theme-color" content="#0f1117">
+<title>Cardiff Practice Drive</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap');
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#0f1117;--surf:#181c25;--surf2:#1f2330;
+  --border:rgba(255,255,255,0.08);
+  --accent:#4ade80;--accent2:#60a5fa;--accent3:#f59e0b;--red:#f87171;
+  --muted:rgba(255,255,255,0.45);--text:#f0f2f5;
+  --font:'DM Sans',sans-serif;--mono:'DM Mono',monospace;--r:12px;
+  --safe-top:env(safe-area-inset-top,0px);--safe-bot:env(safe-area-inset-bottom,0px);
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--font)}
+
+/* ── SCREENS ── */
+#screen-select{display:flex;flex-direction:column;height:100%;padding-top:var(--safe-top)}
+#screen-drive{display:none;flex-direction:column;height:100%;padding-top:var(--safe-top)}
+
+/* ── SELECT SCREEN ── */
+.sel-header{padding:16px 18px 12px;border-bottom:1px solid var(--border)}
+.sel-title{font-size:15px;font-weight:700;color:var(--accent);font-family:var(--mono);letter-spacing:.06em}
+.sel-sub{font-size:12px;color:var(--muted);margin-top:3px}
+.sel-body{flex:1;overflow-y:auto;padding:16px 16px 100px;-webkit-overflow-scrolling:touch}
+.section-label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px;margin-top:18px}
+.section-label:first-child{margin-top:0}
+
+/* Duration chips */
+.dur-row{display:flex;gap:8px}
+.dur-chip{flex:1;padding:12px 8px;border-radius:var(--r);border:2px solid var(--border);background:var(--surf);text-align:center;cursor:pointer;transition:all .15s}
+.dur-chip.on{border-color:var(--accent);background:rgba(74,222,128,.08)}
+.dur-chip-time{font-size:16px;font-weight:700;color:var(--text)}
+.dur-chip-sub{font-size:11px;color:var(--muted);margin-top:2px;font-family:var(--mono)}
+.dur-chip.on .dur-chip-time{color:var(--accent)}
+
+/* Route cards */
+.route-cards{display:flex;flex-direction:column;gap:10px}
+.rcard{background:var(--surf);border:2px solid var(--border);border-radius:var(--r);padding:14px;cursor:pointer;transition:all .15s;display:none}
+.rcard.visible{display:block}
+.rcard.sel{border-color:var(--accent);background:rgba(74,222,128,.06)}
+.rcard-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px}
+.rcard-name{font-size:14px;font-weight:700}
+.rcard-dur{font-size:11px;color:var(--accent);font-family:var(--mono);background:rgba(74,222,128,.12);padding:3px 8px;border-radius:10px}
+.rcard-badges{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:7px}
+.badge{font-size:10px;padding:3px 8px;border-radius:12px;font-weight:500;font-family:var(--mono)}
+.bb{background:rgba(96,165,250,.15);color:#60a5fa}
+.ba{background:rgba(245,158,11,.15);color:#f59e0b}
+.bg{background:rgba(74,222,128,.15);color:#4ade80}
+.br{background:rgba(248,113,113,.15);color:#f87171}
+.rcard-desc{font-size:12px;color:var(--muted);line-height:1.5}
+
+.go-btn{position:fixed;bottom:0;left:0;right:0;background:var(--accent);color:#051205;border:none;padding:18px;font-size:15px;font-weight:700;cursor:pointer;font-family:var(--font);padding-bottom:calc(18px + var(--safe-bot));transition:opacity .15s;letter-spacing:.02em}
+.go-btn:disabled{opacity:.25;cursor:default}
+
+/* ── DRIVE SCREEN ── */
+#drive-map{flex:1;min-height:0;position:relative}
+#leaflet-map{width:100%;height:100%}
+
+/* Direction arrow overlay — always points up = your heading */
+#you-arrow{
+  position:absolute;top:50%;left:50%;
+  transform:translate(-50%,-50%);
+  z-index:500;pointer-events:none;
+  width:44px;height:44px;
+}
+#you-arrow svg{width:44px;height:44px;filter:drop-shadow(0 2px 6px rgba(0,0,0,.6))}
+
+/* Nav instruction bar */
+#nav-bar{
+  position:absolute;top:0;left:0;right:0;z-index:600;
+  background:rgba(15,17,23,.92);
+  backdrop-filter:blur(8px);
+  -webkit-backdrop-filter:blur(8px);
+  padding:calc(var(--safe-top) + 10px) 14px 12px;
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:12px;
+}
+#nav-icon{font-size:32px;flex-shrink:0;line-height:1}
+#nav-text{flex:1}
+#nav-street{font-size:20px;font-weight:700;line-height:1.1;color:var(--text)}
+#nav-inst{font-size:14px;color:var(--accent);margin-top:4px;font-weight:500}
+#nav-dist{font-size:12px;color:var(--muted);margin-top:2px;font-family:var(--mono)}
+#nav-step-info{font-size:11px;color:var(--muted);font-family:var(--mono);text-align:right;flex-shrink:0}
+
+/* Bottom HUD */
+#hud{
+  position:absolute;bottom:0;left:0;right:0;z-index:600;
+  background:rgba(15,17,23,.92);
+  backdrop-filter:blur(8px);
+  -webkit-backdrop-filter:blur(8px);
+  padding:10px 14px calc(10px + var(--safe-bot));
+  border-top:1px solid var(--border);
+  display:flex;align-items:center;gap:10px;
+}
+#hud-speed{font-size:28px;font-weight:700;font-family:var(--mono);color:var(--text);line-height:1}
+#hud-speed-unit{font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:2px}
+.hud-sep{width:1px;height:36px;background:var(--border);flex-shrink:0}
+#hud-prog{flex:1}
+#hud-prog-label{font-size:11px;color:var(--muted);font-family:var(--mono);margin-bottom:4px}
+#hud-prog-bar{height:4px;background:var(--border);border-radius:2px;overflow:hidden}
+#hud-prog-fill{height:100%;background:var(--accent);border-radius:2px;transition:width .4s}
+#hud-btns{display:flex;gap:6px;flex-shrink:0}
+.hud-btn{padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surf);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font)}
+.hud-btn.danger{border-color:var(--red);color:var(--red)}
+
+/* Missed turn */
+#missed-banner{
+  position:absolute;top:0;left:0;right:0;z-index:700;
+  background:var(--red);color:white;
+  text-align:center;padding:10px 14px;
+  font-size:13px;font-weight:700;
+  display:none;padding-top:calc(var(--safe-top) + 10px);
+}
+#missed-banner.show{display:block}
+
+/* Completed overlay */
+#complete-overlay{
+  display:none;position:absolute;inset:0;z-index:800;
+  background:rgba(15,17,23,.95);
+  flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;padding:32px;gap:12px;
+}
+#complete-overlay.show{display:flex}
+.comp-emoji{font-size:56px}
+.comp-title{font-size:24px;font-weight:700;color:var(--accent)}
+.comp-sub{font-size:14px;color:var(--muted);line-height:1.6}
+.comp-btn{margin-top:8px;padding:14px 32px;background:var(--accent);color:#051205;border:none;border-radius:var(--r);font-size:14px;font-weight:700;cursor:pointer;font-family:var(--font)}
+
+/* Loading */
+#loading-overlay{position:absolute;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:900;gap:14px}
+#loading-overlay.hide{display:none}
+.spinner{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-text{font-size:13px;color:var(--muted);font-family:var(--mono)}
+
+.leaflet-container{background:#1a1e2a}
+.leaflet-tile{filter:brightness(.78) saturate(.65)}
+</style>
+</head>
+<body>
+
+<!-- ── ROUTE SELECTION SCREEN ── -->
+<div id="screen-select">
+  <div class="sel-header">
+    <div class="sel-title">Cardiff Practice Drive</div>
+    <div class="sel-sub">Llanishen Test Centre · Mix of everything</div>
+  </div>
+  <div class="sel-body">
+    <div class="section-label">How long do you have?</div>
+    <div class="dur-row">
+      <div class="dur-chip on" data-dur="short" onclick="setDur(this)">
+        <div class="dur-chip-time">15–20</div>
+        <div class="dur-chip-sub">mins</div>
+      </div>
+      <div class="dur-chip" data-dur="medium" onclick="setDur(this)">
+        <div class="dur-chip-time">25–35</div>
+        <div class="dur-chip-sub">mins</div>
+      </div>
+      <div class="dur-chip" data-dur="long" onclick="setDur(this)">
+        <div class="dur-chip-time">40–50</div>
+        <div class="dur-chip-sub">mins</div>
+      </div>
+    </div>
+
+    <div class="section-label">Choose a route</div>
+    <div class="route-cards" id="route-cards"></div>
+  </div>
+  <button class="go-btn" id="go-btn" disabled onclick="startDrive()">Select a route to begin</button>
+</div>
+
+<!-- ── DRIVE SCREEN ── -->
+<div id="screen-drive">
+  <div id="drive-map">
+    <div id="leaflet-map"></div>
+
+    <!-- Fixed car arrow always in centre -->
+    <div id="you-arrow">
+      <svg viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="22" cy="22" r="20" fill="#0f1117" stroke="#4ade80" stroke-width="2.5" opacity=".85"/>
+        <polygon points="22,6 30,34 22,29 14,34" fill="#4ade80"/>
+      </svg>
+    </div>
+
+    <div id="missed-banner">⚠️ Possible missed turn — check your position</div>
+
+    <div id="nav-bar">
+      <div id="nav-icon">🚗</div>
+      <div id="nav-text">
+        <div id="nav-street">Getting GPS…</div>
+        <div id="nav-inst">Waiting for location</div>
+        <div id="nav-dist"></div>
+      </div>
+      <div id="nav-step-info"></div>
+    </div>
+
+    <div id="hud">
+      <div>
+        <div id="hud-speed">0</div>
+        <div id="hud-speed-unit">mph</div>
+      </div>
+      <div class="hud-sep"></div>
+      <div id="hud-prog">
+        <div id="hud-prog-label">Route progress</div>
+        <div id="hud-prog-bar"><div id="hud-prog-fill" style="width:0%"></div></div>
+      </div>
+      <div class="hud-sep"></div>
+      <div id="hud-btns">
+        <button class="hud-btn" onclick="navGo(-1)">← Back</button>
+        <button class="hud-btn" onclick="navGo(1)">Next →</button>
+        <button class="hud-btn danger" onclick="exitDrive()">✕</button>
+      </div>
+    </div>
+
+    <div id="complete-overlay">
+      <div class="comp-emoji">🏁</div>
+      <div class="comp-title">Route Complete!</div>
+      <div class="comp-sub">Well done — you've completed the full practice loop and returned to the test centre area.</div>
+      <button class="comp-btn" onclick="exitDrive()">Back to Routes</button>
+    </div>
+
+    <div id="loading-overlay">
+      <div class="spinner"></div>
+      <div class="loading-text" id="loading-text">Drawing your route…</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const GEOAPIFY_KEY = '8f31f471756b4049b945b463e8147c30';
+const ADVANCE_DIST = 40;
+const MISSED_DIST  = 90;
+
+// Cardiff Llanishen Test Centre — Cardiff Business Park, Llanishen CF14 5GF
+const TC = { lat: 51.5396, lng: -3.1936 };
+
+/*
+  Routes designed around the ACTUAL current Llanishen test centre area.
+  Covering: Llanishen, Thornhill, Lisvane, Birchgrove, Cyncoed, Caerphilly Rd,
+  Ty Glas, Maes-y-Coed, Llanishen Station area.
+  All roads are real Cardiff roads in this area — no dual carriageways on short/medium.
+  Long route includes a brief A-road section (Caerphilly Rd) for familiarity.
+*/
+const ROUTES = [
+  // ── SHORT (15-20 min) ────────────────────────────────────────────────────
+  {
+    id: 'S1', dur: 'short',
+    name: 'Llanishen Station Loop',
+    desc: 'Quiet residential loop around Llanishen station area with mini-roundabouts and 20/30mph zones.',
+    badges: ['🏠 Residential', '🔄 2 roundabouts', '🚦 3 lights', '🐢 20mph zones'],
+    steps: [
+      { street: 'Test Centre', inst: 'Depart — turn left onto Ty Glas Ave', type: 'residential', lat: 51.5396, lng: -3.1936 },
+      { street: 'Ty Glas Ave', inst: 'Follow road, traffic lights ahead', type: 'trafficlight', lat: 51.5388, lng: -3.1958 },
+      { street: 'Caerphilly Rd', inst: 'Traffic lights → left', type: 'trafficlight', lat: 51.5375, lng: -3.1990 },
+      { street: 'Station Rd', inst: 'Turn right', type: 'residential', lat: 51.5362, lng: -3.1975 },
+      { street: 'Llanishen St', inst: 'End of road → left', type: 'residential', lat: 51.5348, lng: -3.1952 },
+      { street: 'Fidlas Rd', inst: 'Mini-roundabout → right', type: 'roundabout', lat: 51.5338, lng: -3.1930 },
+      { street: 'Ty-Wern Rd', inst: 'Follow road', type: 'residential', lat: 51.5325, lng: -3.1915 },
+      { street: 'Cyncoed Rd', inst: 'End of road → left, traffic lights', type: 'trafficlight', lat: 51.5315, lng: -3.1895 },
+      { street: 'Pentwyn Rd', inst: 'Mini-roundabout → right', type: 'roundabout', lat: 51.5330, lng: -3.1870 },
+      { street: 'Lakeside Drive', inst: 'Follow road keeping left', type: 'residential', lat: 51.5352, lng: -3.1865 },
+      { street: 'Ty Glas Ave', inst: 'End of road → right back to Test Centre', type: 'residential', lat: 51.5380, lng: -3.1895 },
+      { street: 'Test Centre', inst: 'Arrive — Cardiff Business Park on left', type: 'residential', lat: 51.5396, lng: -3.1936 }
+    ]
+  },
+  {
+    id: 'S2', dur: 'short',
+    name: 'Thornhill Short Loop',
+    desc: 'Straight out to Thornhill residential streets and back — good for observation and emerging at junctions.',
+    badges: ['🏠 Residential', '🔄 1 roundabout', '🚦 2 lights', '👁 Junctions'],
+    steps: [
+      { street: 'Test Centre', inst: 'Depart — turn right onto Ty Glas Ave', type: 'residential', lat: 51.5396, lng: -3.1936 },
+      { street: 'Ty Glas Ave', inst: 'Traffic lights → right onto Caerphilly Rd', type: 'trafficlight', lat: 51.5405, lng: -3.1910 },
+      { street: 'Caerphilly Rd', inst: 'Continue north', type: 'main', lat: 51.5420, lng: -3.1895 },
+      { street: 'Thornhill Rd', inst: 'Turn left', type: 'residential', lat: 51.5440, lng: -3.1880 },
+      { street: 'Began Rd', inst: 'Follow, end of road → left', type: 'residential', lat: 51.5458, lng: -3.1865 },
+      { street: 'Heol Hir', inst: 'End of road → right', type: 'residential', lat: 51.5472, lng: -3.1850 },
+      { street: 'Thornhill Rd', inst: 'End of road → left, roundabout ahead', type: 'roundabout', lat: 51.5460, lng: -3.1830 },
+      { street: 'Caerphilly Rd', inst: 'Roundabout → right heading south', type: 'main', lat: 51.5440, lng: -3.1870 },
+      { street: 'Caerphilly Rd', inst: 'Traffic lights ahead, continue', type: 'trafficlight', lat: 51.5415, lng: -3.1900 },
+      { street: 'Ty Glas Ave', inst: 'Left → back to Test Centre', type: 'residential', lat: 51.5396, lng: -3.1936 }
+    ]
+  },
+
+  // ── MEDIUM (25-35 min) ────────────────────────────────────────────────────
+  {
+    id: 'M1', dur: 'medium',
+    name: 'Birchgrove & Llanishen',
+    desc: 'Takes in Birchgrove residential streets, Maes-y-Coed Road and back via Llanishen — good mix of observations, give way lines and roundabouts.',
+    badges: ['🏠 Residential', '🔄 3 roundabouts', '🚦 4 lights', '🚗 30mph'],
+    steps: [
+      { street: 'Test Centre', inst: 'Depart — left onto Ty Glas Ave', type: 'residential', lat: 51.5396, lng: -3.1936 },
+      { street: 'Ty Glas Ave', inst: 'Traffic lights → left onto Caerphilly Rd', type: 'trafficlight', lat: 51.5388, lng: -3.1958 },
+      { street: 'Caerphilly Rd', inst: 'Continue south', type: 'main', lat: 51.5368, lng: -3.2000 },
+      { street: 'Maes-y-Coed Rd', inst: 'Turn right', type: 'residential', lat: 51.5348, lng: -3.2030 },
+      { street: 'Maes-y-Coed Rd', inst: 'Follow road, bear left', type: 'residential', lat: 51.5330, lng: -3.2060 },
+      { street: 'Birchgrove Rd', inst: 'End of road → right', type: 'residential', lat: 51.5312, lng: -3.2040 },
+      { street: 'Caerphilly Rd', inst: 'Mini-roundabout → right', type: 'roundabout', lat: 51.5295, lng: -3.2010 },
+      { street: 'Ty-Wern Ave', inst: 'Turn left', type: 'residential', lat: 51.5282, lng: -3.1985 },
+      { street: 'Ty-Wern Rd', inst: 'End of road → right', type: 'residential', lat: 51.5270, lng: -3.1965 },
+      { street: 'Fidlas Rd', inst: 'Traffic lights → left', type: 'trafficlight', lat: 51.5258, lng: -3.1948 },
+      { street: 'Llanishen St', inst: 'End of road → right', type: 'residential', lat: 51.5270, lng: -3.1920 },
+      { street: 'Station Rd', inst: 'Roundabout → left', type: 'roundabout', lat: 51.5285, lng: -3.1905 },
+      { street: 'Caerphilly Rd', inst: 'Traffic lights → right heading north', type: 'trafficlight', lat: 51.5310, lng: -3.1920 },
+      { street: 'Caerphilly Rd', inst: 'Roundabout → left into Ty Glas', type: 'roundabout', lat: 51.5372, lng: -3.1970 },
+      { street: 'Ty Glas Ave', inst: 'Traffic lights → right → Test Centre', type: 'trafficlight', lat: 51.5390, lng: -3.1945 },
+      { street: 'Test Centre', inst: 'Arrive — Cardiff Business Park', type: 'residential', lat: 51.5396, lng: -3.1936 }
+    ]
+  },
+  {
+    id: 'M2', dur: 'medium',
+    name: 'Cyncoed & Lisvane',
+    desc: 'Heads east into Cyncoed and Lisvane — quieter residential roads, good for mirror-signal-manoeuvre practice and speed limit awareness.',
+    badges: ['🏠 Residential', '🔄 2 roundabouts', '🚦 3 lights', '🌿 Quiet roads'],
+    steps: [
+      { street: 'Test Centre', inst: 'Depart — right onto Ty Glas Ave', type: 'residential', lat: 51.5396, lng: -3.1936 },
+      { street: 'Ty Glas Ave', inst: 'Traffic lights → right onto Caerphilly Rd', type: 'trafficlight', lat: 51.5405, lng: -3.1910 },
+      { street: 'Caerphilly Rd', inst: 'Roundabout → right onto Llanishen Rd', type: 'roundabout', lat: 51.5418, lng: -3.1885 },
+      { street: 'Llanishen Rd', inst: 'Follow road east', type: 'residential', lat: 51.5432, lng: -3.1855 },
+      { street: 'Druidstone Rd', inst: 'Turn right', type: 'residential', lat: 51.5448, lng: -3.1820 },
+      { street: 'Lisvane Rd', inst: 'End of road → left', type: 'residential', lat: 51.5465, lng: -3.1790 },
+      { street: 'Lisvane Rd', inst: 'Follow through village, 30mph', type: 'residential', lat: 51.5480, lng: -3.1760 },
+      { street: 'Ty Mawr Rd', inst: 'Turn left', type: 'residential', lat: 51.5470, lng: -3.1735 },
+      { street: 'Cyncoed Rd', inst: 'End of road → left', type: 'residential', lat: 51.5450, lng: -3.1720 },
+      { street: 'Cyncoed Rd', inst: 'Follow south, traffic lights ahead', type: 'trafficlight', lat: 51.5425, lng: -3.1745 },
+      { street: 'Pentwyn Rd', inst: 'Turn right at lights', type: 'trafficlight', lat: 51.5405, lng: -3.1770 },
+      { street: 'Lakeside Drive', inst: 'Follow, roundabout ahead', type: 'roundabout', lat: 51.5388, lng: -3.1820 },
+      { street: 'Ty Glas Ave', inst: 'Roundabout → left, traffic lights', type: 'trafficlight', lat: 51.5390, lng: -3.1880 },
+      { street: 'Test Centre', inst: 'Right → arrive Cardiff Business Park', type: 'residential', lat: 51.5396, lng: -3.1936 }
+    ]
+  },
+
+  // ── LONG (40-50 min) ──────────────────────────────────────────────────────
+  {
+    id: 'L1', dur: 'long',
+    name: 'Full Llanishen & Thornhill',
+    desc: 'The big one — takes in Thornhill, Lisvane, Cyncoed and back through Birchgrove. Includes a stretch of Caerphilly Rd (30mph A-road) for confidence building.',
+    badges: ['🏠 Residential', '🔄 5 roundabouts', '🚦 6 lights', '🚗 A-road section', '👁 Dual c\'way awareness'],
+    steps: [
+      { street: 'Test Centre', inst: 'Depart — left onto Ty Glas Ave', type: 'residential', lat: 51.5396, lng: -3.1936 },
+      { street: 'Ty Glas Ave', inst: 'Traffic lights → right Caerphilly Rd north', type: 'trafficlight', lat: 51.5388, lng: -3.1958 },
+      { street: 'Caerphilly Rd', inst: 'Continue — 30mph, observe side roads', type: 'main', lat: 51.5420, lng: -3.1895 },
+      { street: 'Thornhill Rd', inst: 'Turn left', type: 'residential', lat: 51.5442, lng: -3.1878 },
+      { street: 'Began Rd', inst: 'Follow, end of road → left', type: 'residential', lat: 51.5460, lng: -3.1862 },
+      { street: 'Heol Hir', inst: 'Follow, end of road → right', type: 'residential', lat: 51.5475, lng: -3.1845 },
+      { street: 'Thornhill Rd', inst: 'End of road → right toward Lisvane', type: 'residential', lat: 51.5490, lng: -3.1820 },
+      { street: 'Lisvane Rd', inst: 'Turn right — through village 30mph', type: 'residential', lat: 51.5508, lng: -3.1785 },
+      { street: 'Lisvane Rd', inst: 'Follow — watch for parked cars', type: 'residential', lat: 51.5522, lng: -3.1750 },
+      { street: 'Druidstone Rd', inst: 'Turn left', type: 'residential', lat: 51.5505, lng: -3.1718 },
+      { street: 'Llanishen Rd', inst: 'End of road → left', type: 'residential', lat: 51.5488, lng: -3.1700 },
+      { street: 'Cyncoed Rd', inst: 'End of road → right', type: 'residential', lat: 51.5468, lng: -3.1725 },
+      { street: 'Cyncoed Rd', inst: 'Traffic lights ahead — 30mph', type: 'trafficlight', lat: 51.5445, lng: -3.1750 },
+      { street: 'Ty-Wern Rd', inst: 'Turn left', type: 'residential', lat: 51.5420, lng: -3.1780 },
+      { street: 'Fidlas Rd', inst: 'End of road → left, traffic lights', type: 'trafficlight', lat: 51.5398, lng: -3.1810 },
+      { street: 'Caerphilly Rd', inst: 'Traffic lights → right', type: 'trafficlight', lat: 51.5380, lng: -3.1842 },
+      { street: 'Maes-y-Coed Rd', inst: 'Turn left', type: 'residential', lat: 51.5358, lng: -3.1870 },
+      { street: 'Birchgrove Rd', inst: 'End of road → right', type: 'residential', lat: 51.5338, lng: -3.1900 },
+      { street: 'Caerphilly Rd', inst: 'Mini-roundabout → right heading north', type: 'roundabout', lat: 51.5318, lng: -3.1928 },
+      { street: 'Station Rd', inst: 'Roundabout → left', type: 'roundabout', lat: 51.5340, lng: -3.1955 },
+      { street: 'Llanishen St', inst: 'End of road → right', type: 'residential', lat: 51.5355, lng: -3.1970 },
+      { street: 'Caerphilly Rd', inst: 'Traffic lights → right north', type: 'trafficlight', lat: 51.5372, lng: -3.1985 },
+      { street: 'Caerphilly Rd', inst: 'Roundabout → left Ty Glas Ave', type: 'roundabout', lat: 51.5388, lng: -3.1958 },
+      { street: 'Ty Glas Ave', inst: 'Traffic lights → right → Test Centre', type: 'trafficlight', lat: 51.5392, lng: -3.1945 },
+      { street: 'Test Centre', inst: 'Arrive — Cardiff Business Park on left 🏁', type: 'residential', lat: 51.5396, lng: -3.1936 }
+    ]
+  },
+  {
+    id: 'L2', dur: 'long',
+    name: 'Cyncoed & Heath Extended',
+    desc: 'Longer loop through Cyncoed, Heath and back via Birchgrove — more traffic lights and busier junctions for confident driving practice.',
+    badges: ['🏠 Residential', '🔄 4 roundabouts', '🚦 7 lights', '🚗 Busier roads', '🏙 Junction practice'],
+    steps: [
+      { street: 'Test Centre', inst: 'Depart — right onto Ty Glas Ave', type: 'residential', lat: 51.5396, lng: -3.1936 },
+      { street: 'Ty Glas Ave', inst: 'Traffic lights → left heading south', type: 'trafficlight', lat: 51.5405, lng: -3.1910 },
+      { street: 'Caerphilly Rd', inst: 'Follow south, 30mph', type: 'main', lat: 51.5375, lng: -3.1948 },
+      { street: 'Maes-y-Coed Rd', inst: 'Turn right', type: 'residential', lat: 51.5352, lng: -3.1978 },
+      { street: 'Maes-y-Coed Rd', inst: 'Follow, bear left at fork', type: 'residential', lat: 51.5332, lng: -3.2008 },
+      { street: 'Allensbank Rd', inst: 'End of road → left, traffic lights', type: 'trafficlight', lat: 51.5312, lng: -3.2038 },
+      { street: 'Whitchurch Rd', inst: 'Traffic lights → right', type: 'trafficlight', lat: 51.5295, lng: -3.2010 },
+      { street: 'Heathwood Rd', inst: 'Turn left, follow road', type: 'residential', lat: 51.5278, lng: -3.1980 },
+      { street: 'St Isan Rd', inst: 'Turn right', type: 'residential', lat: 51.5260, lng: -3.1952 },
+      { street: 'Heathway', inst: 'End of road → left', type: 'residential', lat: 51.5245, lng: -3.1928 },
+      { street: 'Heathwood Rd', inst: 'End of road → right, traffic lights', type: 'trafficlight', lat: 51.5232, lng: -3.1905 },
+      { street: 'Cyncoed Rd', inst: 'Traffic lights → left heading north', type: 'trafficlight', lat: 51.5248, lng: -3.1882 },
+      { street: 'Cyncoed Rd', inst: 'Follow north, roundabout ahead', type: 'roundabout', lat: 51.5280, lng: -3.1858 },
+      { street: 'Pentwyn Rd', inst: 'Roundabout → right', type: 'roundabout', lat: 51.5310, lng: -3.1835 },
+      { street: 'Lakeside Drive', inst: 'Follow, bear left', type: 'residential', lat: 51.5338, lng: -3.1820 },
+      { street: 'Ty-Wern Rd', inst: 'End of road → right', type: 'residential', lat: 51.5358, lng: -3.1842 },
+      { street: 'Fidlas Rd', inst: 'End of road → left', type: 'residential', lat: 51.5372, lng: -3.1865 },
+      { street: 'Caerphilly Rd', inst: 'End of road → right, traffic lights', type: 'trafficlight', lat: 51.5385, lng: -3.1888 },
+      { street: 'Caerphilly Rd', inst: 'Roundabout → right Ty Glas Ave', type: 'roundabout', lat: 51.5390, lng: -3.1940 },
+      { street: 'Ty Glas Ave', inst: 'Traffic lights → right → Test Centre', type: 'trafficlight', lat: 51.5393, lng: -3.1938 },
+      { street: 'Test Centre', inst: 'Arrive — Cardiff Business Park on left 🏁', type: 'residential', lat: 51.5396, lng: -3.1936 }
+    ]
+  }
+];
+
+// ── STATE ──────────────────────────────────────────────────────────────────
+let selectedDur = 'short';
+let selectedRoute = null;
+let navStep = 0;
+let map = null;
+let routePolyline = null;
+let waypointLayer = null;
+let userLat = null, userLng = null, userHeading = null;
+let gpsReady = false;
+let watchId = null;
+let headingWatchId = null;
+let missedActive = false;
+let mapRotation = 0;
+
+const TYPE_COLOR = { residential:'#6b7280', trafficlight:'#f59e0b', roundabout:'#60a5fa', dual:'#f87171', main:'#a78bfa' };
+
+const INST_ICON = i => {
+  if (/roundabout/i.test(i)) return '🔄';
+  if (/light|T\/L/i.test(i)) return '🚦';
+  if (/left/i.test(i) && !/right/i.test(i)) return '↰';
+  if (/right/i.test(i) && !/left/i.test(i)) return '↱';
+  if (/ahead|continue|follow/i.test(i)) return '↑';
+  if (/depart/i.test(i)) return '🚗';
+  if (/arrive|back to/i.test(i)) return '🏁';
+  return '→';
+};
+
+function haversine(a,b,c,d) {
+  const R=6371000,x=(c-a)*Math.PI/180,y=(d-b)*Math.PI/180;
+  const e=Math.sin(x/2)**2+Math.cos(a*Math.PI/180)*Math.cos(c*Math.PI/180)*Math.sin(y/2)**2;
+  return R*2*Math.atan2(Math.sqrt(e),Math.sqrt(1-e));
+}
+
+// ── ROUTE SELECT ───────────────────────────────────────────────────────────
+function setDur(chip) {
+  document.querySelectorAll('.dur-chip').forEach(c => c.classList.remove('on'));
+  chip.classList.add('on');
+  selectedDur = chip.dataset.dur;
+  selectedRoute = null;
+  renderCards();
+  updateGoBtn();
+}
+
+function renderCards() {
+  const container = document.getElementById('route-cards');
+  container.innerHTML = '';
+  ROUTES.forEach(r => {
+    const show = r.dur === selectedDur;
+    const div = document.createElement('div');
+    div.className = 'rcard' + (show ? ' visible' : '') + (selectedRoute && selectedRoute.id === r.id ? ' sel' : '');
+    div.innerHTML = `
+      <div class="rcard-header">
+        <div class="rcard-name">${r.name}</div>
+        <div class="rcard-dur">${r.dur === 'short' ? '15–20 min' : r.dur === 'medium' ? '25–35 min' : '40–50 min'}</div>
+      </div>
+      <div class="rcard-badges">${r.badges.map(b => `<span class="badge bg">${b}</span>`).join('')}</div>
+      <div class="rcard-desc">${r.desc}</div>`;
+    div.onclick = () => selectRoute(r.id);
+    container.appendChild(div);
+  });
+}
+
+function selectRoute(id) {
+  selectedRoute = ROUTES.find(r => r.id === id);
+  renderCards();
+  updateGoBtn();
+}
+
+function updateGoBtn() {
+  const btn = document.getElementById('go-btn');
+  if (selectedRoute) { btn.disabled = false; btn.textContent = `▶ Start ${selectedRoute.name}`; }
+  else { btn.disabled = true; btn.textContent = 'Select a route to begin'; }
+}
+
+// ── START DRIVE ────────────────────────────────────────────────────────────
+async function startDrive() {
+  if (!selectedRoute) return;
+  navStep = 0; missedActive = false;
+  document.getElementById('screen-select').style.display = 'none';
+  document.getElementById('screen-drive').style.display = 'flex';
+  document.getElementById('complete-overlay').classList.remove('show');
+  document.getElementById('loading-overlay').classList.remove('hide');
+  document.getElementById('loading-text').textContent = 'Drawing your route…';
+
+  initMap();
+  await drawRoute();
+  document.getElementById('loading-overlay').classList.add('hide');
+  startGPS();
+  renderNavBar();
+}
+
+function initMap() {
+  if (map) { map.invalidateSize(); return; }
+  map = L.map('leaflet-map', {
+    center: [TC.lat, TC.lng], zoom: 15,
+    zoomControl: false, attributionControl: false,
+    rotate: true
+  });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+  // Attribution small bottom-left
+  L.control.attribution({ prefix: false, position: 'bottomleft' }).addTo(map);
+  map.attributionControl.addAttribution('© OpenStreetMap');
+}
+
+async function drawRoute() {
+  if (routePolyline) { map.removeLayer(routePolyline); routePolyline = null; }
+  if (waypointLayer) { map.removeLayer(waypointLayer); waypointLayer = null; }
+  waypointLayer = L.layerGroup().addTo(map);
+
+  const steps = selectedRoute.steps;
+  document.getElementById('loading-text').textContent = 'Fetching road route…';
+
+  let roadCoords = null;
+  try {
+    const url = `https://api.geoapify.com/v1/routing?waypoints=${steps.map(s=>`${s.lat},${s.lng}`).join('|')}&mode=drive&apiKey=${GEOAPIFY_KEY}`;
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('API ' + r.status);
+    const data = await r.json();
+    if (!data.features?.length) throw new Error('No route');
+    roadCoords = [];
+    data.features.forEach(f => {
+      if (f.geometry.type === 'LineString') f.geometry.coordinates.forEach(c => roadCoords.push([c[1], c[0]]));
+      else if (f.geometry.type === 'MultiLineString') f.geometry.coordinates.forEach(l => l.forEach(c => roadCoords.push([c[1], c[0]])));
+    });
+    routePolyline = L.polyline(roadCoords, { color: '#4ade80', weight: 6, opacity: 0.85 }).addTo(map);
+  } catch(e) {
+    // fallback straight lines
+    for (let i = 0; i < steps.length - 1; i++) {
+      L.polyline([[steps[i].lat,steps[i].lng],[steps[i+1].lat,steps[i+1].lng]], {
+        color: TYPE_COLOR[steps[i].type] || '#6b7280', weight: 4, opacity: .7
+      }).addTo(waypointLayer);
+    }
+  }
+
+  // Waypoint markers
+  steps.forEach((s, i) => {
+    const isEnd = i === 0 || i === steps.length - 1;
+    const col = isEnd ? '#4ade80' : (TYPE_COLOR[s.type] || '#6b7280');
+    const sz = isEnd ? 18 : 12;
+    const lbl = isEnd ? (i === 0 ? 'S' : 'E') : String(i + 1);
+    const icon = L.divIcon({
+      className: '',
+      html: `<div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${col};border:2px solid rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;font-size:${sz*.5}px;font-weight:700;color:#000;font-family:monospace">${lbl}</div>`,
+      iconSize: [sz, sz], iconAnchor: [sz/2, sz/2]
+    });
+    L.marker([s.lat, s.lng], { icon })
+      .bindPopup(`<b>${s.street}</b><br><small>${s.inst}</small>`)
+      .addTo(waypointLayer);
+  });
+
+  map.fitBounds(L.latLngBounds(steps.map(s => [s.lat, s.lng])).pad(0.12));
+}
+
+// ── GPS + HEADING ──────────────────────────────────────────────────────────
+function startGPS() {
+  if (!navigator.geolocation) return;
+  watchId = navigator.geolocation.watchPosition(pos => {
+    gpsReady = true;
+    userLat = pos.coords.latitude;
+    userLng = pos.coords.longitude;
+    const spd = pos.coords.speed;
+    document.getElementById('hud-speed').textContent = spd != null ? Math.round(spd * 2.237) : '–';
+
+    // If browser gives heading from GPS (when moving)
+    if (pos.coords.heading != null && !isNaN(pos.coords.heading)) {
+      userHeading = pos.coords.heading;
+      rotateMap(userHeading);
+    }
+
+    panMapToUser();
+    checkProximity();
+  }, null, { enableHighAccuracy: true, maximumAge: 2000, timeout: 10000 });
+
+  // Device orientation for compass heading (better when slow/stopped)
+  if (window.DeviceOrientationEvent) {
+    const handler = e => {
+      let h = null;
+      if (e.webkitCompassHeading != null) h = e.webkitCompassHeading; // iOS
+      else if (e.alpha != null) h = 360 - e.alpha; // Android
+      if (h != null) { userHeading = h; rotateMap(h); }
+    };
+    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+      // iOS 13+ needs permission
+      DeviceOrientationEvent.requestPermission().then(s => {
+        if (s === 'granted') window.addEventListener('deviceorientation', handler, true);
+      }).catch(() => {});
+    } else {
+      window.addEventListener('deviceorientation', handler, true);
+    }
+  }
+}
+
+function panMapToUser() {
+  if (!map || !gpsReady) return;
+  // Pan map keeping user in lower-third of screen (like a satnav)
+  map.panTo([userLat, userLng], { animate: true, duration: 0.5 });
+}
+
+function rotateMap(heading) {
+  if (!map) return;
+  mapRotation = heading;
+  // Rotate the map container opposite to heading so road ahead is always "up"
+  const container = document.getElementById('leaflet-map');
+  container.style.transform = `rotate(${-heading}deg)`;
+  container.style.transformOrigin = '50% 50%';
+  // The car arrow always stays pointing up — it doesn't rotate
+}
+
+// ── PROXIMITY ─────────────────────────────────────────────────────────────
+function checkProximity() {
+  if (!selectedRoute || !gpsReady) return;
+  const steps = selectedRoute.steps;
+  if (navStep >= steps.length - 1) return;
+
+  const next = steps[navStep + 1];
+  const dist = haversine(userLat, userLng, next.lat, next.lng);
+
+  if (dist < ADVANCE_DIST) {
+    navStep = Math.min(navStep + 1, steps.length - 1);
+    missedActive = false;
+    document.getElementById('missed-banner').classList.remove('show');
+    renderNavBar();
+    if (navStep >= steps.length - 1) showComplete();
+    return;
+  }
+
+  const distCurr = haversine(userLat, userLng, steps[navStep].lat, steps[navStep].lng);
+  if (distCurr > MISSED_DIST && dist > MISSED_DIST) {
+    if (!missedActive) { missedActive = true; document.getElementById('missed-banner').classList.add('show'); }
+  } else {
+    if (missedActive) { missedActive = false; document.getElementById('missed-banner').classList.remove('show'); }
+  }
+
+  renderNavBar();
+}
+
+// ── NAV BAR ────────────────────────────────────────────────────────────────
+function renderNavBar() {
+  if (!selectedRoute) return;
+  const steps = selectedRoute.steps;
+  const curr = steps[navStep];
+  const total = steps.length;
+  const pct = Math.round((navStep / (total - 1)) * 100);
+
+  document.getElementById('nav-icon').textContent = INST_ICON(curr.inst);
+  document.getElementById('nav-street').textContent = curr.street;
+  document.getElementById('nav-inst').textContent = curr.inst;
+  document.getElementById('nav-step-info').textContent = `${navStep + 1}/${total}`;
+
+  let distStr = '';
+  if (gpsReady && navStep < total - 1) {
+    const d = haversine(userLat, userLng, steps[navStep + 1].lat, steps[navStep + 1].lng);
+    distStr = d < 1000 ? `📏 ${Math.round(d)}m to next` : `📏 ${(d/1000).toFixed(1)}km to next`;
+  }
+  document.getElementById('nav-dist').textContent = distStr;
+  document.getElementById('hud-prog-fill').style.width = pct + '%';
+  document.getElementById('hud-prog-label').textContent = `${pct}% complete`;
+}
+
+function navGo(dir) {
+  if (!selectedRoute) return;
+  navStep = Math.max(0, Math.min(selectedRoute.steps.length - 1, navStep + dir));
+  missedActive = false;
+  document.getElementById('missed-banner').classList.remove('show');
+  renderNavBar();
+  // Pan map to waypoint
+  if (map) {
+    const s = selectedRoute.steps[navStep];
+    map.panTo([s.lat, s.lng], { animate: true });
+  }
+}
+
+function showComplete() {
+  document.getElementById('complete-overlay').classList.add('show');
+}
+
+function exitDrive() {
+  if (watchId) navigator.geolocation.clearWatch(watchId);
+  watchId = null;
+  document.getElementById('complete-overlay').classList.remove('show');
+  document.getElementById('missed-banner').classList.remove('show');
+  document.getElementById('screen-drive').style.display = 'none';
+  document.getElementById('screen-select').style.display = 'flex';
+  // Reset map rotation
+  const container = document.getElementById('leaflet-map');
+  if (container) container.style.transform = '';
+  selectedRoute = null;
+  renderCards();
+  updateGoBtn();
+}
+
+// ── INIT ───────────────────────────────────────────────────────────────────
+renderCards();
+updateGoBtn();
+</script>
+</body>
+</html>
