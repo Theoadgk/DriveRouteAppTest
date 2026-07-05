@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Cardiff Practice">
+<meta name="theme-color" content="#0f1117">
+<title>Cardiff Practice Drive</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap');
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#0f1117;--surf:#181c25;--surf2:#1f2330;
+  --border:rgba(255,255,255,0.08);
+  --accent:#4ade80;--yellow:#facc15;--red:#f87171;
+  --muted:rgba(255,255,255,0.45);--text:#f0f2f5;
+  --font:'DM Sans',sans-serif;--mono:'DM Mono',monospace;--r:12px;
+  --safe-top:env(safe-area-inset-top,0px);--safe-bot:env(safe-area-inset-bottom,0px);
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--font)}
+#screen-select{display:flex;flex-direction:column;height:100%;padding-top:var(--safe-top)}
+#screen-drive{display:none;height:100%}
+
+/* ── SELECT ── */
+.hdr{padding:16px 18px 12px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.hdr-title{font-size:15px;font-weight:700;color:var(--accent);font-family:var(--mono);letter-spacing:.06em}
+.hdr-sub{font-size:12px;color:var(--muted);margin-top:3px}
+.body{flex:1;overflow-y:auto;padding:16px 16px 100px;-webkit-overflow-scrolling:touch}
+.lbl{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin:18px 0 10px}
+.lbl:first-child{margin-top:0}
+.dur-row{display:flex;gap:8px}
+.dchip{flex:1;padding:12px 8px;border-radius:var(--r);border:2px solid var(--border);background:var(--surf);text-align:center;cursor:pointer;transition:all .15s}
+.dchip.on{border-color:var(--accent);background:rgba(74,222,128,.08)}
+.dchip-t{font-size:16px;font-weight:700}
+.dchip.on .dchip-t{color:var(--accent)}
+.dchip-s{font-size:11px;color:var(--muted);margin-top:2px;font-family:var(--mono)}
+.cards{display:flex;flex-direction:column;gap:10px}
+.card{background:var(--surf);border:2px solid var(--border);border-radius:var(--r);padding:14px;cursor:pointer;transition:all .15s;display:none;position:relative}
+.card.vis{display:block}
+.card.sel{border-color:var(--accent);background:rgba(74,222,128,.06)}
+.card-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;gap:8px}
+.card-name{font-size:14px;font-weight:700}
+.card-tag{font-size:11px;color:var(--accent);font-family:var(--mono);background:rgba(74,222,128,.12);padding:3px 8px;border-radius:10px;white-space:nowrap}
+.bdgs{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px}
+.bdg{font-size:10px;padding:3px 8px;border-radius:12px;font-weight:500;font-family:var(--mono);background:rgba(74,222,128,.12);color:var(--accent)}
+.card-desc{font-size:12px;color:var(--muted);line-height:1.5}
+.card-del{position:absolute;top:10px;right:10px;background:none;border:none;color:var(--red);font-size:15px;cursor:pointer;padding:4px;opacity:.7}
+.upload-zone{border:2px dashed var(--border);border-radius:var(--r);padding:22px 16px;text-align:center;cursor:pointer;transition:border-color .2s;background:var(--surf)}
+.upload-zone:active{border-color:var(--accent)}
+.upload-icon{font-size:28px;margin-bottom:8px}
+.upload-txt{font-size:13px;font-weight:600}
+.upload-sub{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.5}
+#file-input{display:none}
+.go-btn{position:fixed;bottom:0;left:0;right:0;background:var(--accent);color:#051205;border:none;padding:18px;font-size:15px;font-weight:700;cursor:pointer;font-family:var(--font);padding-bottom:calc(18px + var(--safe-bot))}
+.go-btn:disabled{opacity:.25;cursor:default}
+
+/* ── DRIVE / 3D VIEW ── */
+#drive-map{
+  position:absolute;inset:0;overflow:hidden;background:#12151d;
+  perspective:1200px;perspective-origin:50% 30%;
+}
+#map-wrap{
+  position:absolute;
+  width:220%;height:220%;
+  top:50%;left:50%;
+  transform:translate(-50%,-50%);
+  transform-origin:center center;
+  transition:transform .35s ease-out;
+  will-change:transform;
+}
+#leaflet-map{width:100%;height:100%}
+
+#recentre{
+  position:absolute;bottom:96px;right:14px;z-index:650;
+  width:48px;height:48px;border-radius:50%;
+  background:var(--surf);border:1px solid var(--border);
+  color:var(--accent);font-size:22px;cursor:pointer;
+  display:none;align-items:center;justify-content:center;
+  box-shadow:0 2px 14px rgba(0,0,0,.6);
+}
+#recentre.vis{display:flex}
+
+#view-toggle{
+  position:absolute;bottom:152px;right:14px;z-index:650;
+  width:48px;height:48px;border-radius:50%;
+  background:var(--surf);border:1px solid var(--border);
+  color:var(--text);font-size:14px;font-weight:700;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 2px 14px rgba(0,0,0,.6);font-family:var(--mono);
+}
+
+#nav-bar{
+  position:absolute;top:0;left:0;right:0;z-index:660;
+  background:rgba(15,17,23,.94);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  padding:calc(var(--safe-top) + 10px) 14px 12px;
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:12px;
+}
+#nav-icon{font-size:32px;flex-shrink:0;line-height:1;min-width:36px;text-align:center}
+#nav-txt{flex:1;min-width:0}
+#nav-street{font-size:20px;font-weight:700;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#nav-inst{font-size:13px;color:var(--accent);margin-top:4px;font-weight:500}
+#nav-dist{font-size:11px;color:var(--muted);margin-top:2px;font-family:var(--mono)}
+#nav-badge{font-size:11px;color:var(--muted);font-family:var(--mono);flex-shrink:0;background:var(--surf2);padding:4px 8px;border-radius:8px;border:1px solid var(--border)}
+
+#hud{
+  position:absolute;bottom:0;left:0;right:0;z-index:660;
+  background:rgba(15,17,23,.94);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  padding:10px 14px calc(10px + var(--safe-bot));
+  border-top:1px solid var(--border);
+  display:flex;align-items:center;gap:10px;
+}
+#spd{font-size:26px;font-weight:700;font-family:var(--mono);line-height:1;min-width:40px;text-align:center}
+#spd-u{font-size:10px;color:var(--muted);font-family:var(--mono);text-align:center}
+.sep{width:1px;height:34px;background:var(--border)}
+#prog{flex:1}
+#prog-l{font-size:11px;color:var(--muted);font-family:var(--mono);margin-bottom:5px}
+#prog-b{height:4px;background:var(--border);border-radius:2px;overflow:hidden}
+#prog-f{height:100%;background:var(--accent);border-radius:2px;transition:width .4s}
+.hbtns{display:flex;gap:5px}
+.hbtn{padding:9px 11px;border-radius:8px;border:1px solid var(--border);background:var(--surf);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font)}
+.hbtn:active{background:var(--surf2)}
+.hbtn.danger{border-color:rgba(248,113,113,.35);color:var(--red)}
+
+#missed{position:absolute;top:0;left:0;right:0;z-index:700;background:var(--red);color:#fff;text-align:center;padding:10px 14px;padding-top:calc(var(--safe-top)+10px);font-size:13px;font-weight:700;display:none}
+#missed.vis{display:block}
+#done{display:none;position:absolute;inset:0;z-index:800;background:rgba(15,17,23,.96);flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:32px;gap:12px}
+#done.vis{display:flex}
+.done-e{font-size:56px}.done-t{font-size:24px;font-weight:700;color:var(--accent)}
+.done-s{font-size:14px;color:var(--muted);line-height:1.6}
+.done-b{margin-top:8px;padding:14px 32px;background:var(--accent);color:#051205;border:none;border-radius:var(--r);font-size:14px;font-weight:700;cursor:pointer;font-family:var(--font)}
+#loader{position:absolute;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:900;gap:14px}
+#loader.hide{display:none}
+.spin{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.load-t{font-size:13px;color:var(--muted);font-family:var(--mono)}
+#toast{position:fixed;bottom:100px;left:50%;transform:translateX(-50%);background:var(--surf2);border:1px solid var(--border);color:var(--text);padding:12px 18px;border-radius:10px;font-size:13px;z-index:999;display:none;max-width:85%;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,.5)}
+#toast.vis{display:block}
+.leaflet-container{background:#12151d}
+.leaflet-tile{filter:brightness(.78) saturate(.65)}
+.car-icon{transition:transform .3s linear}
+</style>
+</head>
+<body>
+
+<div id="screen-select">
+  <div class="hdr">
+    <div>
+      <div class="hdr-title">Cardiff Practice Drive</div>
+      <div class="hdr-sub">Llanishen Test Centre · CF14 5GF</div>
+    </div>
+  </div>
+  <div class="body">
+    <div class="lbl">📂 Import your own route</div>
+    <div class="upload-zone" onclick="document.getElementById('file-input').click()">
+      <div class="upload-icon">🗺</div>
+      <div class="upload-txt">Upload KMZ / KML file</div>
+      <div class="upload-sub">Export from Google My Maps → the exact GPS track becomes a followable route. Saved on this device.</div>
+    </div>
+    <input type="file" id="file-input" accept=".kmz,.kml" onchange="handleFile(this)">
+
+    <div class="lbl" id="my-routes-lbl" style="display:none">📌 My imported routes</div>
+    <div class="cards" id="my-cards"></div>
+
+    <div class="lbl">⏱ Built-in routes — how long do you have?</div>
+    <div class="dur-row">
+      <div class="dchip on" data-dur="short" onclick="setDur(this)"><div class="dchip-t">15–20</div><div class="dchip-s">mins</div></div>
+      <div class="dchip" data-dur="medium" onclick="setDur(this)"><div class="dchip-t">25–35</div><div class="dchip-s">mins</div></div>
+      <div class="dchip" data-dur="long" onclick="setDur(this)"><div class="dchip-t">40–50</div><div class="dchip-s">mins</div></div>
+    </div>
+    <div class="lbl">Choose a route</div>
+    <div class="cards" id="builtin-cards"></div>
+  </div>
+  <button class="go-btn" id="go-btn" disabled onclick="startDrive()">Select a route to begin</button>
+</div>
+
+<div id="screen-drive">
+  <div id="drive-map">
+    <div id="map-wrap"><div id="leaflet-map"></div></div>
+    <button id="view-toggle" onclick="toggleView()">3D</button>
+    <button id="recentre" onclick="recentre()">⊕</button>
+    <div id="missed">⚠️ Possible missed turn — check your position</div>
+    <div id="nav-bar">
+      <div id="nav-icon">🚗</div>
+      <div id="nav-txt">
+        <div id="nav-street">Waiting for GPS…</div>
+        <div id="nav-inst">Starting up</div>
+        <div id="nav-dist"></div>
+      </div>
+      <div id="nav-badge">–/–</div>
+    </div>
+    <div id="hud">
+      <div><div id="spd">–</div><div id="spd-u">mph</div></div>
+      <div class="sep"></div>
+      <div id="prog"><div id="prog-l">0% complete</div><div id="prog-b"><div id="prog-f" style="width:0%"></div></div></div>
+      <div class="sep"></div>
+      <div class="hbtns">
+        <button class="hbtn" onclick="navGo(-1)">←</button>
+        <button class="hbtn" onclick="navGo(1)">→</button>
+        <button class="hbtn danger" onclick="exitDrive()">✕</button>
+      </div>
+    </div>
+    <div id="done">
+      <div class="done-e">🏁</div>
+      <div class="done-t">Route Complete!</div>
+      <div class="done-s">Well done — full practice loop completed.</div>
+      <button class="done-b" onclick="exitDrive()">Back to Routes</button>
+    </div>
+    <div id="loader"><div class="spin"></div><div class="load-t" id="load-t">Loading…</div></div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+const GEO_KEY='8f31f471756b4049b945b463e8147c30';
+const ADVANCE=45, MISSED=100;
+const TILT_DEG=48;           // Google-style tilt angle
+const FOLLOW_ZOOM=17;        // close-up zoom while following
+const CAM_AHEAD_M=90;        // camera looks this far ahead of the car
+
+// ── BUILT-IN ROUTES (Geoapify-routed) ───────────────────────────────────────
+const TC={lat:51.5226,lng:-3.1917};
+const BUILTIN=[
+{id:'S1',dur:'short',name:'Llanishen Village Loop',desc:'Short loop through Llanishen village, Station Road and back via Fidlas Road.',badges:['🏠 Residential','🔄 Roundabout','🚦 Lights'],
+ steps:[
+  {street:'Test Centre — Lambourne Crescent',inst:'Depart — follow Lambourne Crescent to Ty Glas Rd',lat:51.5226,lng:-3.1917},
+  {street:'Parc Tŷ Glas Roundabout',inst:'Roundabout — exit for Caerphilly Rd south',lat:51.5217,lng:-3.1971},
+  {street:'Caerphilly Rd / Station Rd',inst:'Traffic lights — turn left onto Station Rd',lat:51.5185,lng:-3.2005},
+  {street:'Station Rd — Llanishen',inst:'Follow through village — 20mph',lat:51.5162,lng:-3.2012},
+  {street:'Llanishen St / Fidlas Rd',inst:'End of road — turn right onto Fidlas Rd',lat:51.5148,lng:-3.1975},
+  {street:'Fidlas Rd / Ty-Wern Rd',inst:'Turn left onto Ty-Wern Rd',lat:51.5148,lng:-3.1930},
+  {street:'Ty-Wern Rd north',inst:'Follow road north',lat:51.5175,lng:-3.1920},
+  {street:'Ty Glas Ave',inst:'Traffic lights — turn right toward business park',lat:51.5218,lng:-3.1952},
+  {street:'Test Centre — Lambourne Crescent',inst:'Arrive back — 🏁',lat:51.5226,lng:-3.1917}
+]},
+{id:'S2',dur:'short',name:'Thornhill Out & Back',desc:'North up Caerphilly Road to Thornhill streets and back.',badges:['🏠 Residential','🚗 30mph','👁 Junctions'],
+ steps:[
+  {street:'Test Centre — Lambourne Crescent',inst:'Depart — head to Ty Glas Rd',lat:51.5226,lng:-3.1917},
+  {street:'Parc Tŷ Glas Roundabout',inst:'Roundabout — exit onto Caerphilly Rd north',lat:51.5217,lng:-3.1971},
+  {street:'Caerphilly Rd north',inst:'Follow north — 30mph',lat:51.5250,lng:-3.1940},
+  {street:'Thornhill Rd',inst:'Turn left into Thornhill Rd',lat:51.5268,lng:-3.1918},
+  {street:'Thornhill Rd residential',inst:'Follow road — give way to oncoming',lat:51.5285,lng:-3.1895},
+  {street:'Return junction',inst:'End of road — turn right back to Caerphilly Rd',lat:51.5268,lng:-3.1870},
+  {street:'Caerphilly Rd south',inst:'Follow south toward Ty Glas',lat:51.5240,lng:-3.1928},
+  {street:'Parc Tŷ Glas Roundabout',inst:'Roundabout — exit for Lambourne Crescent',lat:51.5217,lng:-3.1971},
+  {street:'Test Centre — Lambourne Crescent',inst:'Arrive back — 🏁',lat:51.5226,lng:-3.1917}
+]},
+{id:'M1',dur:'medium',name:'Llanishen & Birchgrove',desc:'Llanishen village, Maes-y-Coed Road and Birchgrove streets.',badges:['🏠 Residential','🔄 2 rdbts','🚦 4 lights'],
+ steps:[
+  {street:'Test Centre — Lambourne Crescent',inst:'Depart — to Ty Glas Rd',lat:51.5226,lng:-3.1917},
+  {street:'Parc Tŷ Glas Roundabout',inst:'Roundabout — Caerphilly Rd south',lat:51.5217,lng:-3.1971},
+  {street:'Caerphilly Rd south',inst:'Traffic lights — continue south',lat:51.5185,lng:-3.2005},
+  {street:'Maes-y-Coed Rd',inst:'Turn right onto Maes-y-Coed Rd',lat:51.5148,lng:-3.2035},
+  {street:'Maes-y-Coed Rd',inst:'Follow, bear left — 20mph',lat:51.5128,lng:-3.1978},
+  {street:'Birchgrove Rd',inst:'End of road — turn right',lat:51.5110,lng:-3.1998},
+  {street:'Caerphilly Rd / Birchgrove',inst:'Lights — turn right north',lat:51.5098,lng:-3.1975},
+  {street:'Caerphilly Rd north',inst:'Follow north',lat:51.5148,lng:-3.1958},
+  {street:'Station Rd',inst:'Turn left — village 20mph',lat:51.5185,lng:-3.2005},
+  {street:'Llanishen St / Fidlas Rd',inst:'Follow, right onto Fidlas Rd',lat:51.5148,lng:-3.1975},
+  {street:'Ty-Wern Rd',inst:'Turn left, follow north',lat:51.5148,lng:-3.1930},
+  {street:'Ty Glas Ave',inst:'Lights — turn right',lat:51.5218,lng:-3.1952},
+  {street:'Test Centre — Lambourne Crescent',inst:'Arrive back — 🏁',lat:51.5226,lng:-3.1917}
+]},
+{id:'M2',dur:'medium',name:'Rhiwbina & Llanishen',desc:'Northwest into Rhiwbina village then back through Llanishen.',badges:['🏠 Residential','🌿 Village','🚦 3 lights'],
+ steps:[
+  {street:'Test Centre — Lambourne Crescent',inst:'Depart — to Ty Glas Rd',lat:51.5226,lng:-3.1917},
+  {street:'Parc Tŷ Glas Roundabout',inst:'Roundabout — Caerphilly Rd north',lat:51.5217,lng:-3.1971},
+  {street:'Caerphilly Rd north',inst:'Follow north — 30mph',lat:51.5250,lng:-3.1940},
+  {street:'Pantmawr Rd',inst:'Turn left onto Pantmawr Rd',lat:51.5280,lng:-3.2120},
+  {street:'Heol y Deri — Rhiwbina',inst:'Follow into village — 20mph',lat:51.5310,lng:-3.2050},
+  {street:'Rhiwbina south',inst:'Turn right, follow south',lat:51.5285,lng:-3.2020},
+  {street:'Caerphilly Rd rejoin',inst:'End of road — turn left',lat:51.5250,lng:-3.1980},
+  {street:'Caerphilly Rd / Station Rd',inst:'Lights — turn left into Llanishen',lat:51.5185,lng:-3.2005},
+  {street:'Station Rd / Llanishen St',inst:'Follow village, right at end',lat:51.5162,lng:-3.2012},
+  {street:'Fidlas Rd east',inst:'Follow east — lights ahead',lat:51.5148,lng:-3.1975},
+  {street:'Ty Glas Ave',inst:'Lights — turn right toward TC',lat:51.5218,lng:-3.1952},
+  {street:'Test Centre — Lambourne Crescent',inst:'Arrive back — 🏁',lat:51.5226,lng:-3.1917}
+]},
+{id:'L1',dur:'long',name:'Thornhill, Lisvane & Llanishen',desc:'Full loop — Thornhill, Lisvane, Cyncoed, back through Llanishen.',badges:['🏠 Residential','🔄 3 rdbts','🚦 5 lights','🌿 Lisvane'],
+ steps:[
+  {street:'Test Centre — Lambourne Crescent',inst:'Depart — to Ty Glas Rd',lat:51.5226,lng:-3.1917},
+  {street:'Parc Tŷ Glas Roundabout',inst:'Roundabout — Caerphilly Rd north',lat:51.5217,lng:-3.1971},
+  {street:'Caerphilly Rd north',inst:'Follow north — 30mph',lat:51.5250,lng:-3.1940},
+  {street:'Thornhill Rd',inst:'Turn left into Thornhill Rd',lat:51.5268,lng:-3.1918},
+  {street:'Thornhill Rd',inst:'Follow — watch parked cars',lat:51.5290,lng:-3.1875},
+  {street:'Lisvane Rd',inst:'End of road — turn right toward Lisvane',lat:51.5302,lng:-3.1842},
+  {street:'Lisvane village',inst:'Follow through village — narrow',lat:51.5318,lng:-3.1780},
+  {street:'Cyncoed Ave',inst:'Turn left — south toward Cyncoed',lat:51.5295,lng:-3.1748},
+  {street:'Cyncoed Rd',inst:'End of road — turn right south',lat:51.5265,lng:-3.1720},
+  {street:'Cyncoed Rd south',inst:'Follow — lights ahead',lat:51.5225,lng:-3.1750},
+  {street:'Fidlas Rd',inst:'Lights — turn right onto Fidlas Rd',lat:51.5148,lng:-3.1930},
+  {street:'Caerphilly Rd rejoin',inst:'Lights — turn right north',lat:51.5148,lng:-3.1958},
+  {street:'Station Rd',inst:'Lights — turn left into Llanishen',lat:51.5185,lng:-3.2005},
+  {street:'Llanishen St',inst:'Follow village, right onto Fidlas Rd',lat:51.5162,lng:-3.2012},
+  {street:'Ty-Wern Rd',inst:'Turn left, follow north',lat:51.5148,lng:-3.1930},
+  {street:'Ty Glas Ave',inst:'Lights — turn right',lat:51.5218,lng:-3.1952},
+  {street:'Test Centre — Lambourne Crescent',inst:'Arrive back — 🏁',lat:51.5226,lng:-3.1917}
+]},
+{id:'L2',dur:'long',name:'Rhiwbina, Birchgrove & Cyncoed',desc:'Rhiwbina village, Birchgrove, across to Cyncoed and back.',badges:['🏠 Residential','🔄 3 rdbts','🚦 6 lights'],
+ steps:[
+  {street:'Test Centre — Lambourne Crescent',inst:'Depart — to Ty Glas Rd',lat:51.5226,lng:-3.1917},
+  {street:'Parc Tŷ Glas Roundabout',inst:'Roundabout — Caerphilly Rd north',lat:51.5217,lng:-3.1971},
+  {street:'Caerphilly Rd north',inst:'Follow north',lat:51.5250,lng:-3.1940},
+  {street:'Pantmawr Rd',inst:'Turn left onto Pantmawr Rd',lat:51.5280,lng:-3.2120},
+  {street:'Heol y Deri',inst:'Follow into Rhiwbina — 20mph',lat:51.5310,lng:-3.2050},
+  {street:'Caerphilly Rd rejoin',inst:'End of road — turn right south',lat:51.5250,lng:-3.1980},
+  {street:'Maes-y-Coed Rd',inst:'Turn left onto Maes-y-Coed',lat:51.5148,lng:-3.2035},
+  {street:'Birchgrove Rd',inst:'End of road — turn right',lat:51.5110,lng:-3.1998},
+  {street:'Caerphilly Rd / Birchgrove',inst:'Lights — turn right north',lat:51.5098,lng:-3.1975},
+  {street:'Caerphilly Rd north',inst:'Follow north',lat:51.5148,lng:-3.1958},
+  {street:'Fidlas Rd',inst:'Turn right onto Fidlas Rd',lat:51.5148,lng:-3.1975},
+  {street:'Cyncoed Rd',inst:'End of road — turn left',lat:51.5148,lng:-3.1930},
+  {street:'Cyncoed Rd north',inst:'Follow north — lights',lat:51.5185,lng:-3.1910},
+  {street:'Ty-Wern Rd',inst:'Turn left toward Llanishen',lat:51.5210,lng:-3.1888},
+  {street:'Ty Glas Ave',inst:'Lights — turn right',lat:51.5218,lng:-3.1952},
+  {street:'Test Centre — Lambourne Crescent',inst:'Arrive back — 🏁',lat:51.5226,lng:-3.1917}
+]}
+];
+
+// ── STATE ────────────────────────────────────────────────────────────────────
+let selDur='short', selRoute=null, step=0;
+let map=null, dimLine=null, brightLine=null, wptLayer=null, carMarker=null;
+let roadSegs=[], trackCoords=[];
+let lat=null,lng=null,heading=0,gpsOk=false,watchId=null;
+let following=true, tilted=true, missedOn=false;
+let myRoutes=[];
+
+// ── HELPERS ──────────────────────────────────────────────────────────────────
+function hdist(a,b,c,d){const R=6371000,x=(c-a)*Math.PI/180,y=(d-b)*Math.PI/180;const e=Math.sin(x/2)**2+Math.cos(a*Math.PI/180)*Math.cos(c*Math.PI/180)*Math.sin(y/2)**2;return R*2*Math.atan2(Math.sqrt(e),Math.sqrt(1-e));}
+function bearing(a,b,c,d){const y=Math.sin((d-b)*Math.PI/180)*Math.cos(c*Math.PI/180);const x=Math.cos(a*Math.PI/180)*Math.sin(c*Math.PI/180)-Math.sin(a*Math.PI/180)*Math.cos(c*Math.PI/180)*Math.cos((d-b)*Math.PI/180);return (Math.atan2(y,x)*180/Math.PI+360)%360;}
+function destPoint(la,lo,brg,d){const dLat=d*Math.cos(brg*Math.PI/180)/111320;const dLng=d*Math.sin(brg*Math.PI/180)/(111320*Math.cos(la*Math.PI/180));return[la+dLat,lo+dLng];}
+const ICON=i=>{if(/roundabout/i.test(i))return'🔄';if(/light/i.test(i))return'🚦';if(/left/i.test(i)&&!/right/i.test(i))return'↰';if(/right/i.test(i)&&!/left/i.test(i))return'↱';if(/arrive|🏁/i.test(i))return'🏁';if(/depart/i.test(i))return'🚗';return'↑';};
+function toast(msg,ms=3000){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('vis');setTimeout(()=>t.classList.remove('vis'),ms);}
+
+// ── LOCAL STORAGE (works fine on GitHub Pages) ──────────────────────────────
+function loadMyRoutes(){try{myRoutes=JSON.parse(localStorage.getItem('myRoutes')||'[]');}catch(e){myRoutes=[];}}
+function saveMyRoutes(){try{localStorage.setItem('myRoutes',JSON.stringify(myRoutes));}catch(e){toast('⚠️ Could not save — storage full?');}}
+
+// ── KMZ / KML PARSING ────────────────────────────────────────────────────────
+async function handleFile(input){
+  const file=input.files[0];
+  if(!file)return;
+  input.value='';
+  try{
+    let kmlText;
+    if(file.name.toLowerCase().endsWith('.kmz')){
+      const zip=await JSZip.loadAsync(file);
+      let kmlFile=null;
+      zip.forEach((path,f)=>{if(path.toLowerCase().endsWith('.kml')&&!kmlFile)kmlFile=f;});
+      if(!kmlFile)throw new Error('No KML inside KMZ');
+      kmlText=await kmlFile.async('string');
+    }else{
+      kmlText=await file.text();
+    }
+    const route=parseKML(kmlText,file.name);
+    if(!route)throw new Error('No track found in file');
+    myRoutes.push(route);
+    saveMyRoutes();
+    renderMyCards();
+    toast(`✅ Imported "${route.name}" — ${route.steps.length} waypoints, ${(route.distM/1609).toFixed(1)} miles`);
+  }catch(e){
+    toast('❌ Import failed: '+e.message,4000);
+  }
+}
+
+function parseKML(text,filename){
+  const doc=new DOMParser().parseFromString(text,'text/xml');
+  // find the LineString with the most coordinates (the track)
+  let best=null,bestLen=0;
+  doc.querySelectorAll('LineString coordinates').forEach(el=>{
+    const raw=el.textContent.trim().split(/\s+/);
+    if(raw.length>bestLen){bestLen=raw.length;best=raw;}
+  });
+  if(!best||best.length<5)return null;
+
+  const track=[];
+  best.forEach(c=>{
+    const p=c.split(',');
+    if(p.length>=2){const lg=parseFloat(p[0]),lt=parseFloat(p[1]);if(!isNaN(lt)&&!isNaN(lg))track.push([lt,lg]);}
+  });
+  if(track.length<5)return null;
+
+  // total distance
+  let distM=0;
+  for(let i=1;i<track.length;i++)distM+=hdist(track[i-1][0],track[i-1][1],track[i][0],track[i][1]);
+
+  // extract key waypoints at direction changes
+  const steps=[{street:'Start',inst:'Depart — follow the route',lat:track[0][0],lng:track[0][1],trackIdx:0}];
+  const win=Math.max(3,Math.floor(track.length/80));
+  let lastIdx=0;
+  for(let i=win;i<track.length-win;i++){
+    const b1=bearing(track[i-win][0],track[i-win][1],track[i][0],track[i][1]);
+    const b2=bearing(track[i][0],track[i][1],track[i+win][0],track[i+win][1]);
+    let diff=b2-b1;
+    if(diff>180)diff-=360; if(diff<-180)diff+=360;
+    const distFromLast=hdist(track[lastIdx][0],track[lastIdx][1],track[i][0],track[i][1]);
+    if(Math.abs(diff)>28&&distFromLast>180){
+      const dir=diff>0?'right':'left';
+      const strength=Math.abs(diff)>60?'Turn':'Bear';
+      steps.push({street:`Waypoint ${steps.length}`,inst:`${strength} ${dir}`,lat:track[i][0],lng:track[i][1],trackIdx:i});
+      lastIdx=i;
+    }
+  }
+  steps.push({street:'Finish',inst:'Arrive at end of route 🏁',lat:track[track.length-1][0],lng:track[track.length-1][1],trackIdx:track.length-1});
+
+  let name=filename.replace(/\.(kmz|kml)$/i,'').replace(/[_-]+/g,' ').trim();
+  const nEl=doc.querySelector('Document > n, Document > name');
+  if(nEl&&nEl.textContent.trim())name=nEl.textContent.trim().replace(/\.gpx$/i,'');
+
+  return {id:'U'+Date.now(),custom:true,name,desc:`Imported route — ${(distM/1609).toFixed(1)} miles, ${steps.length} waypoints.`,badges:['🗺 Your KMZ','📏 '+(distM/1609).toFixed(1)+' mi'],steps,track,distM};
+}
+
+// ── CARDS ────────────────────────────────────────────────────────────────────
+function setDur(chip){document.querySelectorAll('.dchip').forEach(c=>c.classList.remove('on'));chip.classList.add('on');selDur=chip.dataset.dur;if(selRoute&&!selRoute.custom)selRoute=null;renderBuiltinCards();updateBtn();}
+function renderBuiltinCards(){
+  const el=document.getElementById('builtin-cards');el.innerHTML='';
+  BUILTIN.forEach(r=>{
+    const d=document.createElement('div');
+    d.className='card'+(r.dur===selDur?' vis':'')+(selRoute&&selRoute.id===r.id?' sel':'');
+    d.innerHTML=`<div class="card-top"><div class="card-name">${r.name}</div><div class="card-tag">${r.dur==='short'?'15–20':r.dur==='medium'?'25–35':'40–50'} min</div></div><div class="bdgs">${r.badges.map(b=>`<span class="bdg">${b}</span>`).join('')}</div><div class="card-desc">${r.desc}</div>`;
+    d.onclick=()=>{selRoute=r;renderBuiltinCards();renderMyCards();updateBtn();};
+    el.appendChild(d);
+  });
+}
+function renderMyCards(){
+  const el=document.getElementById('my-cards');el.innerHTML='';
+  document.getElementById('my-routes-lbl').style.display=myRoutes.length?'block':'none';
+  myRoutes.forEach((r,idx)=>{
+    const d=document.createElement('div');
+    d.className='card vis'+(selRoute&&selRoute.id===r.id?' sel':'');
+    d.innerHTML=`<button class="card-del" onclick="event.stopPropagation();delRoute(${idx})">🗑</button><div class="card-top"><div class="card-name">${r.name}</div><div class="card-tag">KMZ</div></div><div class="bdgs">${r.badges.map(b=>`<span class="bdg">${b}</span>`).join('')}</div><div class="card-desc">${r.desc}</div>`;
+    d.onclick=()=>{selRoute=r;renderBuiltinCards();renderMyCards();updateBtn();};
+    el.appendChild(d);
+  });
+}
+function delRoute(idx){if(confirm('Delete "'+myRoutes[idx].name+'"?')){if(selRoute&&selRoute.id===myRoutes[idx].id)selRoute=null;myRoutes.splice(idx,1);saveMyRoutes();renderMyCards();updateBtn();}}
+function updateBtn(){const b=document.getElementById('go-btn');if(selRoute){b.disabled=false;b.textContent='▶  Start — '+selRoute.name;}else{b.disabled=true;b.textContent='Select a route to begin';}}
+
+// ── DRIVE ────────────────────────────────────────────────────────────────────
+async function startDrive(){
+  if(!selRoute)return;
+  step=0;missedOn=false;following=true;tilted=true;
+  document.getElementById('screen-select').style.display='none';
+  document.getElementById('screen-drive').style.display='block';
+  document.getElementById('done').classList.remove('vis');
+  document.getElementById('loader').classList.remove('hide');
+  document.getElementById('load-t').textContent='Loading map…';
+  document.getElementById('recentre').classList.remove('vis');
+  document.getElementById('view-toggle').textContent='3D';
+
+  await new Promise(r=>setTimeout(r,120));
+  initMap();
+  await new Promise(r=>setTimeout(r,80));
+  map.invalidateSize();
+  document.getElementById('load-t').textContent='Preparing route…';
+  await buildRoute();
+  document.getElementById('loader').classList.add('hide');
+  renderNav();
+  startGPS();
+  applyCam();
+}
+
+function initMap(){
+  if(map){map.invalidateSize();return;}
+  map=L.map('leaflet-map',{center:[TC.lat,TC.lng],zoom:FOLLOW_ZOOM,zoomControl:false,attributionControl:false});
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
+  // When user drags: exit follow mode, flatten to north-up 2D so swipes feel natural
+  map.on('dragstart',()=>{
+    if(following){
+      following=false;
+      flattenCam();
+    }
+    document.getElementById('recentre').classList.add('vis');
+  });
+}
+
+async function buildRoute(){
+  [dimLine,brightLine].forEach(l=>{if(l)map.removeLayer(l);});
+  dimLine=null;brightLine=null;
+  if(wptLayer)map.removeLayer(wptLayer);
+  wptLayer=L.layerGroup().addTo(map);
+  roadSegs=[];trackCoords=[];
+
+  const steps=selRoute.steps;
+
+  if(selRoute.custom&&selRoute.track){
+    // KMZ route — the full GPS track IS the road line. No API needed.
+    trackCoords=selRoute.track;
+    // per-leg segments sliced from track using stored indices
+    for(let i=0;i<steps.length-1;i++){
+      const a=steps[i].trackIdx??0, b=steps[i+1].trackIdx??trackCoords.length-1;
+      roadSegs.push(trackCoords.slice(a,b+1));
+    }
+    dimLine=L.polyline(trackCoords,{color:'#4ade80',weight:4,opacity:0.22}).addTo(map);
+  }else{
+    // Built-in route — road-snap with Geoapify
+    try{
+      const url=`https://api.geoapify.com/v1/routing?waypoints=${steps.map(s=>`${s.lat},${s.lng}`).join('|')}&mode=drive&apiKey=${GEO_KEY}`;
+      const res=await fetch(url);if(!res.ok)throw 0;
+      const data=await res.json();if(!data.features?.length)throw 0;
+      let flat=[];
+      data.features.forEach(f=>{
+        if(f.geometry.type==='LineString')f.geometry.coordinates.forEach(c=>flat.push([c[1],c[0]]));
+        else if(f.geometry.type==='MultiLineString')f.geometry.coordinates.forEach(l=>l.forEach(c=>flat.push([c[1],c[0]])));
+      });
+      trackCoords=flat;
+      let prev=0;
+      for(let i=1;i<steps.length;i++){
+        let best=prev,bd=1e9;
+        for(let j=prev;j<flat.length;j++){
+          const d=Math.abs(flat[j][0]-steps[i].lat)+Math.abs(flat[j][1]-steps[i].lng);
+          if(d<bd){bd=d;best=j;}
+          if(d<0.0001)break;
+        }
+        roadSegs.push(flat.slice(prev,best+1));
+        prev=best;
+      }
+      dimLine=L.polyline(flat,{color:'#4ade80',weight:4,opacity:0.2}).addTo(map);
+    }catch(e){
+      for(let i=0;i<steps.length-1;i++)roadSegs.push([[steps[i].lat,steps[i].lng],[steps[i+1].lat,steps[i+1].lng]]);
+      dimLine=L.polyline(steps.map(s=>[s.lat,s.lng]),{color:'#4ade80',weight:3,opacity:0.2}).addTo(map);
+    }
+  }
+
+  // start/end markers
+  const s0=steps[0],sE=steps[steps.length-1];
+  [[s0,'S'],[sE,'E']].forEach(([p,l])=>{
+    const ic=L.divIcon({className:'',html:`<div style="width:20px;height:20px;border-radius:50%;background:#4ade80;border:2px solid #000;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#000;font-family:monospace">${l}</div>`,iconSize:[20,20],iconAnchor:[10,10]});
+    L.marker([p.lat,p.lng],{icon:ic}).addTo(wptLayer);
+  });
+
+  // car marker (real Leaflet marker so it moves with the map)
+  if(carMarker)map.removeLayer(carMarker);
+  const carIc=L.divIcon({className:'',html:`<div class="car-icon" id="car-rot" style="width:38px;height:38px"><svg viewBox="0 0 40 40" width="38" height="38"><circle cx="20" cy="20" r="18" fill="#0f1117" stroke="#4ade80" stroke-width="2.5" opacity=".92"/><polygon points="20,5 28,32 20,27 12,32" fill="#4ade80"/></svg></div>`,iconSize:[38,38],iconAnchor:[19,19]});
+  carMarker=L.marker([s0.lat,s0.lng],{icon:carIc,zIndexOffset:1000}).addTo(map);
+
+  drawLeg();
+  map.setView([s0.lat,s0.lng],FOLLOW_ZOOM);
+}
+
+function drawLeg(){
+  if(brightLine){map.removeLayer(brightLine);brightLine=null;}
+  if(!selRoute||step>=selRoute.steps.length-1)return;
+  const coords=roadSegs[step]&&roadSegs[step].length>1?roadSegs[step]:[[selRoute.steps[step].lat,selRoute.steps[step].lng],[selRoute.steps[step+1].lat,selRoute.steps[step+1].lng]];
+  brightLine=L.polyline(coords,{color:'#facc15',weight:8,opacity:0.92}).addTo(map);
+}
+
+// ── CAMERA (Google-style tilt + rotate) ─────────────────────────────────────
+function applyCam(){
+  const w=document.getElementById('map-wrap');
+  if(!w)return;
+  if(following&&tilted){
+    w.style.transform=`translate(-50%,-50%) rotateX(${TILT_DEG}deg) rotate(${-heading}deg)`;
+  }else if(following){
+    w.style.transform=`translate(-50%,-50%) rotate(${-heading}deg)`;
+  }else{
+    w.style.transform='translate(-50%,-50%)';
+  }
+}
+function flattenCam(){
+  const w=document.getElementById('map-wrap');
+  if(w)w.style.transform='translate(-50%,-50%)';
+}
+function toggleView(){
+  tilted=!tilted;
+  document.getElementById('view-toggle').textContent=tilted?'3D':'2D';
+  applyCam();
+}
+function recentre(){
+  following=true;
+  document.getElementById('recentre').classList.remove('vis');
+  applyCam();
+  if(gpsOk)followCam();
+}
+
+function followCam(){
+  if(!map||!gpsOk)return;
+  // camera centre sits AHEAD of the car so you see more road in front (Google style)
+  const [cLat,cLng]=destPoint(lat,lng,heading,tilted?CAM_AHEAD_M:CAM_AHEAD_M*0.5);
+  map.setView([cLat,cLng],FOLLOW_ZOOM,{animate:true,duration:0.4});
+}
+
+// ── GPS ──────────────────────────────────────────────────────────────────────
+function startGPS(){
+  if(!navigator.geolocation)return;
+  watchId=navigator.geolocation.watchPosition(pos=>{
+    gpsOk=true;lat=pos.coords.latitude;lng=pos.coords.longitude;
+    const spd=pos.coords.speed??0;
+    document.getElementById('spd').textContent=Math.round(spd*2.237);
+    if(pos.coords.heading!=null&&!isNaN(pos.coords.heading)&&spd>1){
+      heading=pos.coords.heading;
+    }
+    // update car marker
+    if(carMarker){
+      carMarker.setLatLng([lat,lng]);
+      const rot=document.getElementById('car-rot');
+      if(rot)rot.style.transform=`rotate(${heading}deg)`;
+    }
+    if(following){applyCam();followCam();}
+    checkProx();
+  },null,{enableHighAccuracy:true,maximumAge:1500,timeout:10000});
+
+  const oh=e=>{
+    let h=e.webkitCompassHeading??(e.alpha!=null?360-e.alpha:null);
+    if(h!=null){
+      heading=h;
+      const rot=document.getElementById('car-rot');
+      if(rot)rot.style.transform=`rotate(${h}deg)`;
+      if(following)applyCam();
+    }
+  };
+  if(typeof DeviceOrientationEvent!=='undefined'){
+    if(typeof DeviceOrientationEvent.requestPermission==='function'){
+      DeviceOrientationEvent.requestPermission().then(s=>{if(s==='granted')window.addEventListener('deviceorientation',oh,true);}).catch(()=>{});
+    }else{window.addEventListener('deviceorientation',oh,true);}
+  }
+}
+
+// ── PROXIMITY ────────────────────────────────────────────────────────────────
+function checkProx(){
+  if(!selRoute||!gpsOk||step>=selRoute.steps.length-1)return;
+  const nxt=selRoute.steps[step+1];
+  const d=hdist(lat,lng,nxt.lat,nxt.lng);
+  if(d<ADVANCE){
+    step++;missedOn=false;
+    document.getElementById('missed').classList.remove('vis');
+    drawLeg();renderNav();
+    if(step>=selRoute.steps.length-1)document.getElementById('done').classList.add('vis');
+    return;
+  }
+  // missed-turn check uses distance to the bright leg's nearest point, not just waypoints
+  let minToLeg=1e9;
+  const seg=roadSegs[step]||[];
+  for(let i=0;i<seg.length;i+=2){
+    const dd=hdist(lat,lng,seg[i][0],seg[i][1]);
+    if(dd<minToLeg)minToLeg=dd;
+  }
+  if(minToLeg>MISSED&&d>MISSED){
+    if(!missedOn){missedOn=true;document.getElementById('missed').classList.add('vis');}
+  }else if(missedOn){missedOn=false;document.getElementById('missed').classList.remove('vis');}
+  renderNav();
+}
+
+// ── NAV BAR ──────────────────────────────────────────────────────────────────
+function renderNav(){
+  if(!selRoute)return;
+  const steps=selRoute.steps,curr=steps[step],total=steps.length;
+  const pct=Math.round((step/(total-1))*100);
+  document.getElementById('nav-icon').textContent=ICON(curr.inst);
+  document.getElementById('nav-street').textContent=curr.street;
+  document.getElementById('nav-inst').textContent=curr.inst;
+  document.getElementById('nav-badge').textContent=(step+1)+'/'+total;
+  document.getElementById('prog-f').style.width=pct+'%';
+  document.getElementById('prog-l').textContent=pct+'% complete';
+  let ds='';
+  if(gpsOk&&step<total-1){const d=hdist(lat,lng,steps[step+1].lat,steps[step+1].lng);ds=d<1000?`📏 ${Math.round(d)}m to next`:`📏 ${(d/1000).toFixed(1)}km to next`;}
+  document.getElementById('nav-dist').textContent=ds;
+}
+
+function navGo(dir){
+  if(!selRoute)return;
+  step=Math.max(0,Math.min(selRoute.steps.length-1,step+dir));
+  missedOn=false;document.getElementById('missed').classList.remove('vis');
+  drawLeg();renderNav();
+  if(map&&!following)map.panTo([selRoute.steps[step].lat,selRoute.steps[step].lng],{animate:true});
+}
+
+function exitDrive(){
+  if(watchId){navigator.geolocation.clearWatch(watchId);watchId=null;}
+  ['done','missed'].forEach(id=>document.getElementById(id).classList.remove('vis'));
+  document.getElementById('recentre').classList.remove('vis');
+  document.getElementById('screen-drive').style.display='none';
+  document.getElementById('screen-select').style.display='flex';
+  flattenCam();
+  selRoute=null;renderBuiltinCards();renderMyCards();updateBtn();
+}
+
+// ── INIT ─────────────────────────────────────────────────────────────────────
+loadMyRoutes();
+renderBuiltinCards();
+renderMyCards();
+updateBtn();
+</script>
+</body>
+</html>
